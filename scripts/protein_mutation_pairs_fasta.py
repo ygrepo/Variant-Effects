@@ -39,12 +39,12 @@ tokenizer_path = os.path.join(pickle_dir, model_name.replace("/", "_") + "_token
 
 # Load the model
 print(f"Loading model from {model_path}")
-model = EsmForMaskedLM.from_pretrained(model_path, trust_remote_code=True)
+model = EsmForMaskedLM.from_pretrained(model_path)
 model.to(device)
 
 # Load the tokenizer
 print(f"Loading tokenizer from {tokenizer_path}")
-tokenizer = AutoTokenizer.from_pretrained(tokenizer_path, trust_remote_code=True)
+tokenizer = AutoTokenizer.from_pretrained(tokenizer_path)
 
 
 
