@@ -4,6 +4,7 @@ import torch
 import numpy as np
 import pandas as pd
 from Bio import SeqIO
+import os
 
 # Add command-line arguments
 parser = argparse.ArgumentParser(description="Process protein sequences using ESM2 model.")
@@ -28,9 +29,20 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 # Load the model and tokenizer based on user input
 model_name = args.model_name
-tokenizer = AutoTokenizer.from_pretrained(model_name)
-model = EsmForMaskedLM.from_pretrained(model_name)
+
+base_dir = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
+model_path = os.path.join(base_dir, "saved_model")
+print(f"Loading model from {model_path}")
+model = EsmForMaskedLM.from_pretrained(model_path, trust_remote_code = True)
 model.to(device)
+
+tokenizer_path = os.path.join(base_dir, "saved_tokenizer")
+print(f"Loading Tokenizer from {tokenizer_path}")
+tokenizer = AutoTokenizer.from_pretrained(tokenizer_path, trust_remote_code = True)
+
+
+# tokenizer = AutoTokenizer.from_pretrained(model_name)
+# model = EsmForMaskedLM.from_pretrained(model_name)
 
 def process_sequence(protein_sequence, sequence_id, start_residue, end_residue):
     """
