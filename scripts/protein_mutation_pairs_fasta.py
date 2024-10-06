@@ -28,17 +28,24 @@ end_residue = int(interval[1])
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 # Load the model and tokenizer based on user input
+# Load the model and tokenizer based on user input
 model_name = args.model_name
 
+# Set up the paths for the model and tokenizer in the pickle directory
 base_dir = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
-model_path = os.path.join(base_dir, "saved_model")
+pickle_dir = os.path.join(base_dir, "pickle")
+model_path = os.path.join(pickle_dir, model_name.replace("/", "_") + "_model")
+tokenizer_path = os.path.join(pickle_dir, model_name.replace("/", "_") + "_tokenizer")
+
+# Load the model
 print(f"Loading model from {model_path}")
-model = EsmForMaskedLM.from_pretrained(model_path, trust_remote_code = True)
+model = EsmForMaskedLM.from_pretrained(model_path, trust_remote_code=True)
 model.to(device)
 
-tokenizer_path = os.path.join(base_dir, "saved_tokenizer")
-print(f"Loading Tokenizer from {tokenizer_path}")
-tokenizer = AutoTokenizer.from_pretrained(tokenizer_path, trust_remote_code = True)
+# Load the tokenizer
+print(f"Loading tokenizer from {tokenizer_path}")
+tokenizer = AutoTokenizer.from_pretrained(tokenizer_path, trust_remote_code=True)
+
 
 
 # tokenizer = AutoTokenizer.from_pretrained(model_name)
