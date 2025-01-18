@@ -111,6 +111,7 @@ def run_predictions(protein_seq, rare_variants, model, tokenizer, device):
 
         results.append(
             {
+                "HGVSp": prot_consequence_str,
                 "ProteinPos": prot_pos,
                 "RefAA": ref_aa,
                 "AltAA": alt_aa,
@@ -122,6 +123,20 @@ def run_predictions(protein_seq, rare_variants, model, tokenizer, device):
     # Sort by LLR descending
     results.sort(key=lambda x: x["LLR"], reverse=True)
     return results
+
+
+def save_results(results, output_file):
+    # Choose or infer field names
+    fieldnames = ["HGVSp", "ProteinPos", "RefAA", "Alt", "AltAA", "LLR"]
+
+    # Write CSV
+    output_file = output_file
+    with open(output_file, "w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(results)
+
+    print(f"Wrote {len(results)} rows to {output_file}")
 
 
 def load_protein_sequence(fasta_path):
@@ -211,6 +226,4 @@ if __name__ == "__main__":
     # 3) Run predictions
     results = run_predictions(protein_seq, rare_variants, model, tokenizer, device)
 
-    # # 4) Print top 5
-    # for r in results[:5]:
-    #     print(r)
+    save_results(results, "./data/BRCA1_rare_variants_predcitions_small.csv")
