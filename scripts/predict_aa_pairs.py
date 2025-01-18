@@ -201,7 +201,7 @@ if __name__ == "__main__":
     filename = "./data/Homo_sapiens_ENSP00000350283_3_sequence.fa"
     protein_seq = load_protein_sequence(filename)
     print(f"Sequence length: {len(protein_seq)}")
-    rare_variants = load_rare_variants("./data/BRCA1_rare_variants.csv")
+    rare_variants = load_rare_variants("./data/BRCA1_rare_variants_small.csv")
     # check_position(rare_variants, 1296)
 
     # # 2) Load Model
