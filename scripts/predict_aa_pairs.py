@@ -101,6 +101,7 @@ def run_predictions(protein_seq, rare_variants, model, tokenizer, device):
         if protein_seq[prot_pos - 1] != ref_aa:
             print(
                 f"Warning: mismatch at protein position {prot_pos}: "
+                f"HGVSp={prot_consequence_str}, "
                 f"seq={protein_seq[prot_pos - 1]}, var={ref_aa}"
             )
             continue
@@ -137,11 +138,30 @@ def load_protein_sequence(fasta_path):
     return "".join(lines)
 
 
-def load_model(model_name):
-    model_name = "facebook/esm2_t6_8M_UR50D"
-    tokenizer = AutoTokenizer.from_pretrained(model_name)
+def load_model(model_name, load_flag=True):
+    if not load_flag:
+        model_name = "facebook/esm2_t6_8M_UR50D"
+        tokenizer = AutoTokenizer.from_pretrained(model_name)
+        model = EsmForMaskedLM.from_pretrained(model_name).to(device)
+        return model, tokenizer, device
+
+    # Set up the paths for the model and tokenizer in the pickle directory
+    base_dir = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
+    pickle_dir = os.path.join(base_dir, "pickle")
+    model_path = os.path.join(pickle_dir, model_name.replace("/", "_") + "_model")
+    tokenizer_path = os.path.join(
+        pickle_dir, model_name.replace("/", "_") + "_tokenizer"
+    )
+
+    # Load the model
+    print(f"Loading model from {model_path}")
+    model = EsmForMaskedLM.from_pretrained(model_path)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model = EsmForMaskedLM.from_pretrained(model_name).to(device)
+    model.to(device)
+
+    # Load the tokenizer
+    print(f"Loading tokenizer from {tokenizer_path}")
+    tokenizer = AutoTokenizer.from_pretrained(tokenizer_path)
     return model, tokenizer, device
 
 

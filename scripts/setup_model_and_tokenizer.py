@@ -2,7 +2,6 @@ from transformers import AutoModelForMaskedLM, AutoTokenizer
 import os
 import requests
 import json
-import pickle
 
 # Downloads and installs the model, tokenizer, and DNA data. Required as the compute nodes do not have network access.
 
@@ -69,7 +68,7 @@ def fetch_and_save_dna_sequence():
 
 if __name__ == "__main__":
     MODEL_NAME = "facebook/esm2_t6_8M_UR50D"
-    pickle_dir = "../pickle"
+    pickle_dir = "./pickle"
 
     setup_model_and_tokenizer(MODEL_NAME, pickle_dir)
     # fetch_and_save_dna_sequence()

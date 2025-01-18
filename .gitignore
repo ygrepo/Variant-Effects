@@ -4,3 +4,4 @@ caduceus_backup.yml
 qsubs/
 poetry.lock
 pyproject.toml
+pickle/
