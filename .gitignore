@@ -5,3 +5,4 @@ qsubs/
 poetry.lock
 pyproject.toml
 pickle/
+qsubs/
