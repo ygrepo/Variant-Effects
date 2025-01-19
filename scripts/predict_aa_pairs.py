@@ -1,7 +1,13 @@
 import os
-from transformers import AutoTokenizer, EsmForMaskedLM
-import torch
 import csv
+import argparse
+import torch
+from transformers import (
+    AutoConfig,
+    AutoModelForCausalLM,
+    AutoTokenizer,
+    EsmForMaskedLM,  # only used for ESM model
+)
 
 
 import re
@@ -108,7 +114,13 @@ def run_predictions(protein_seq, rare_variants, model, tokenizer, device):
 
         # Compute log-likelihood ratio
         llr = compute_llr(model, tokenizer, input_ids, prot_pos, ref_aa, alt_aa)
-
+        clinVar = var["ClinVar"]
+        sift_score = var["SIFT_score"]
+        if sift_score.strip().lower() == "nan":
+            sift_score = "NA"
+        polyphen_score = var["Polyphen_score"]
+        if polyphen_score.strip().lower() == "nan":
+            polyphen_score = "NA"
         results.append(
             {
                 "HGVSp": prot_consequence_str,
@@ -116,7 +128,9 @@ def run_predictions(protein_seq, rare_variants, model, tokenizer, device):
                 "RefAA": ref_aa,
                 "AltAA": alt_aa,
                 "LLR": llr,
-                # you can also store AF or other fields from var if you want
+                "ClinVar": clinVar,
+                "Sift": sift_score,
+                "Polyphen": polyphen_score,
             }
         )
 
@@ -127,7 +141,16 @@ def run_predictions(protein_seq, rare_variants, model, tokenizer, device):
 
 def save_results(results, output_file):
     # Choose or infer field names
-    fieldnames = ["HGVSp", "ProteinPos", "RefAA", "Alt", "AltAA", "LLR"]
+    fieldnames = [
+        "HGVSp",
+        "ProteinPos",
+        "RefAA",
+        "AltAA",
+        "LLR",
+        "ClinVar",
+        "Sift",
+        "Polyphen",
+    ]
 
     # Write CSV
     output_file = output_file
@@ -154,30 +177,79 @@ def load_protein_sequence(fasta_path):
 
 
 def load_model(model_name, load_flag=True):
-    if not load_flag:
-        model_name = "facebook/esm2_t6_8M_UR50D"
-        tokenizer = AutoTokenizer.from_pretrained(model_name)
-        model = EsmForMaskedLM.from_pretrained(model_name).to(device)
-        return model, tokenizer, device
-
-    # Set up the paths for the model and tokenizer in the pickle directory
-    base_dir = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
-    pickle_dir = os.path.join(base_dir, "pickle")
-    model_path = os.path.join(pickle_dir, model_name.replace("/", "_") + "_model")
-    tokenizer_path = os.path.join(
-        pickle_dir, model_name.replace("/", "_") + "_tokenizer"
-    )
-
-    # Load the model
-    print(f"Loading model from {model_path}")
-    model = EsmForMaskedLM.from_pretrained(model_path)
+    """
+    Loads the specified model and tokenizer.
+    If load_flag is False, loads from Hugging Face Hub (online).
+    If load_flag is True, loads from local 'pickle' directory.
+    """
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model.to(device)
 
-    # Load the tokenizer
-    print(f"Loading tokenizer from {tokenizer_path}")
-    tokenizer = AutoTokenizer.from_pretrained(tokenizer_path)
-    return model, tokenizer, device
+    if model_name == "togethercomputer/evo-1-131k-base":
+        # ========= EVO: Causal LM =========
+        if not load_flag:
+            # 1) Load from Hugging Face
+            config = AutoConfig.from_pretrained(
+                model_name, trust_remote_code=True, revision="1.1_fix"
+            )
+            model = AutoModelForCausalLM.from_pretrained(
+                model_name, config=config, trust_remote_code=True, revision="1.1_fix"
+            )
+            tokenizer = AutoTokenizer.from_pretrained(
+                model_name, trust_remote_code=True, revision="1.1_fix"
+            )
+            model.to(device)
+            model.eval()
+            return model, tokenizer, device
+        else:
+            # 2) Load from local pickle
+            base_dir = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
+            pickle_dir = os.path.join(base_dir, "pickle")
+            model_path = os.path.join(
+                pickle_dir, model_name.replace("/", "_") + "_model"
+            )
+            tokenizer_path = os.path.join(
+                pickle_dir, model_name.replace("/", "_") + "_tokenizer"
+            )
+
+            print(f"Loading EVO model from {model_path}")
+            model = AutoModelForCausalLM.from_pretrained(model_path)
+            model.to(device)
+            model.eval()
+
+            print(f"Loading EVO tokenizer from {tokenizer_path}")
+            tokenizer = AutoTokenizer.from_pretrained(tokenizer_path)
+            return model, tokenizer, device
+
+    elif model_name == "facebook/esm2_t6_8M_UR50D":
+        # ========= ESM: Masked LM =========
+        if not load_flag:
+            # 1) Load from Hugging Face
+            tokenizer = AutoTokenizer.from_pretrained(model_name)
+            model = EsmForMaskedLM.from_pretrained(model_name).to(device)
+            model.eval()
+            return model, tokenizer, device
+        else:
+            # 2) Load from local pickle
+            base_dir = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
+            pickle_dir = os.path.join(base_dir, "pickle")
+            model_path = os.path.join(
+                pickle_dir, model_name.replace("/", "_") + "_model"
+            )
+            tokenizer_path = os.path.join(
+                pickle_dir, model_name.replace("/", "_") + "_tokenizer"
+            )
+
+            print(f"Loading ESM model from {model_path}")
+            model = EsmForMaskedLM.from_pretrained(model_path)
+            model.to(device)
+            model.eval()
+
+            print(f"Loading ESM tokenizer from {tokenizer_path}")
+            tokenizer = AutoTokenizer.from_pretrained(tokenizer_path)
+            return model, tokenizer, device
+
+    else:
+        raise ValueError(f"Unsupported model name: {model_name}")
 
 
 def load_rare_variants(csv_filename):
@@ -209,21 +281,54 @@ def check_position(protein_seq, pos):
     return aa_at_pos
 
 
-if __name__ == "__main__":
-    print(f"Curr.dir:{os.getcwd()}")
+def read_args():
+    parser = argparse.ArgumentParser(description="Predict Protein Mutation Using PLM.")
 
-    # 1) Load rare variants and BRCA1 sequence
+    parser.add_argument(
+        "--loadFlag",
+        action="store_true",  # turn it into a boolean flag
+        default=False,
+        help="If set, load the model from local pickle directory (default: False)",
+    )
+
+    parser.add_argument(
+        "--model",
+        type=str,
+        default="facebook/esm2_t6_8M_UR50D",
+        choices=["togethercomputer/evo-1-131k-base", "facebook/esm2_t6_8M_UR50D"],
+        help="Name of the PLM to use (default: facebook/esm2_t6_8M_UR50D)",
+    )
+    parser.add_argument(
+        "--output-filename",
+        type=str,
+        default="./data/BRCA1_rare_variants_ESM2_predictions_small.csv",
+        help="Output filename (default: ./data/BRCA1_rare_variants_ESM2_predictions_small.csv)",
+    )
+
+    return parser.parse_args()
+
+
+if __name__ == "__main__":
+    print(f"Curr.dir: {os.getcwd()}")
+
+    # 1) Read command-line arguments
+    args = read_args()
+    print(f"LoadFlag: {args.loadFlag}")
+    print(f"Model: {args.model}")
+    print(f"Output filename: {args.output_filename}")
+
+    # 2) Load Model
+    model_name = args.model
+    model, tokenizer, device = load_model(model_name, load_flag=args.loadFlag)
+
+    # 3) Load rare variants and BRCA1 sequence
     filename = "./data/Homo_sapiens_ENSP00000350283_3_sequence.fa"
     protein_seq = load_protein_sequence(filename)
     print(f"Sequence length: {len(protein_seq)}")
     rare_variants = load_rare_variants("./data/BRCA1_rare_variants_small.csv")
     # check_position(rare_variants, 1296)
 
-    # # 2) Load Model
-    model_name = "facebook/esm2_t6_8M_UR50D"
-    model, tokenizer, device = load_model(model_name)
-
-    # 3) Run predictions
+    # 4) Run predictions
     results = run_predictions(protein_seq, rare_variants, model, tokenizer, device)
 
-    save_results(results, "./data/BRCA1_rare_variants_predcitions_small.csv")
+    save_results(results, args.output_filename)

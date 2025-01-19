@@ -1,5 +1,6 @@
 import csv
 import os
+import numpy as np
 
 AF_THRESHOLD = 6.24e-07  # example threshold (0.1%)
 
@@ -24,6 +25,13 @@ def read_gnomad_file(filename):
                 alt = row["Alternate"]
                 hgvsp = row["HGVS Consequence"]  # e.g. "p.Leu42Pro"
                 pCons = row["Protein Consequence"]  # e.g. "p.Leu42Pro"
+                clinvar = row["ClinVar Germline Classification"]
+                siftScore = np.nan
+                if len(row["sift_max"]) != 0:
+                    siftScore = float(row["sift_max"])
+                polyphenScore = np.nan
+                if len(row["polyphen_max"]) != 0:
+                    polyphenScore = float(row["polyphen_max"])
                 rare_variants.append(
                     {
                         "Chromosome": chromosome,
@@ -34,6 +42,9 @@ def read_gnomad_file(filename):
                         "HGVSp": hgvsp,
                         "pCons": pCons,
                         "AF": af,
+                        "ClinVar": clinvar,
+                        "SIFT_score": siftScore,
+                        "Polyphen_score": polyphenScore,
                     }
                 )
 
@@ -58,6 +69,9 @@ if __name__ == "__main__":
             "HGVSp",
             "pCons",
             "AF",
+            "ClinVar",
+            "SIFT_score",
+            "Polyphen_score",
         ]
         writer = csv.DictWriter(f, fieldnames=fieldnames)
         writer.writeheader()

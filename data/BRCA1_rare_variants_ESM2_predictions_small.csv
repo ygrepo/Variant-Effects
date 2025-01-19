@@ -1,0 +1,21 @@
+HGVSp,ProteinPos,RefAA,AltAA,LLR,ClinVar,Sift,Polyphen
+p.Met1324Leu,1324,M,L,1.6678190231323242,,0.27,0.001
+p.Phe1296Leu,1296,F,L,1.517151117324829,,0.0,0.201
+p.Thr1310Ser,1310,T,S,0.7655658721923828,,0.12,0.046
+p.Gln1811Arg,1811,Q,R,0.45092344284057617,Likely pathogenic,0.0,0.955
+p.Arg1649Ile,1649,R,I,0.23293709754943848,not provided,0.01,0.005
+p.Val1590Ala,1590,V,A,0.19718098640441895,Uncertain significance,0.03,0.0
+p.Gln1811Pro,1811,Q,P,0.18375587463378906,Likely pathogenic,0.0,0.979
+p.Val1632Leu,1632,V,L,0.16543173789978027,Uncertain significance,0.28,0.001
+p.Lys1648Arg,1648,K,R,0.1183173656463623,Likely benign,0.91,0.0
+p.Glu1644Lys,1644,E,K,0.014660835266113281,not provided,1.0,0.077
+p.Val1234Val,1234,V,V,0.0,Likely benign,NA,NA
+p.Thr1289Pro,1289,T,P,-0.337125301361084,Conflicting classifications of pathogenicity,0.19,0.062
+p.Glu1630Gly,1630,E,G,-0.36612582206726074,Uncertain significance,0.09,0.024
+p.Glu1638Gly,1638,E,G,-0.5154786109924316,Uncertain significance,0.15,0.0
+p.Thr1640Arg,1640,T,R,-0.5209660530090332,not provided,0.09,0.08
+p.Ser1631Ile,1631,S,I,-0.8781499862670898,not provided,0.1,0.015
+p.Glu1287Lys,1287,E,K,-0.9470771551132202,Conflicting classifications of pathogenicity,0.01,0.046
+p.Leu1639Phe,1639,L,F,-0.9714276790618896,not provided,0.26,0.001
+p.Lys301Arg,301,K,R,-0.9826128482818604,Conflicting classifications of pathogenicity,0.02,0.992
+p.Leu1261Phe,1261,L,F,-1.4170336723327637,Likely benign,0.32,0.067
