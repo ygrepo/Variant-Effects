@@ -297,7 +297,7 @@ def run_predictions(df, model, tokenizer, device, fasta_dir="./data/protein_sequ
 
 def save_results(results, output_file):
     """Saves LLR predictions to CSV."""
-    fieldnames = ["Gene", "UniProt_ID", "HGVSp", "ProteinPos", "RefAA", "AltAA", "LLR"]
+    fieldnames = ["Gene", "Transcript", "HGVSp", "ProteinPos", "RefAA", "AltAA", "LLR"]
     with open(output_file, "w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=fieldnames)
         writer.writeheader()
@@ -400,4 +400,4 @@ if __name__ == "__main__":
 
     # 4) Save results
     output_file = "./data/variant_predictions.csv"
-    # save_results(results, output_file)
+    save_results(results, output_file)
