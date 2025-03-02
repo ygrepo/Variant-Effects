@@ -39,67 +39,85 @@ three_to_one = {
 }
 
 
-def parse_protein_consequence(consequence_str):
+def parse_hgvsp(hgvsp_str):
     """
-    Parses HGVS protein notation into (position, ref_aa, alt_aa).
+    Parses HGVS protein notation into a structured format.
 
-    Examples:
-    - 'p.Phe1296Leu' -> (1296, 'F', 'L')
-    - 'p.W50_S51insG' -> (50, 'WS', 'WSG')
-    - 'p.M1?' -> (1, 'M', '?')
-    - 'p.Q66Pfs' -> None (Frameshift mutation)
-    - 'p.X95L' -> None (Stop codon mutation)
+    Handles:
+    - Substitutions: p.M173I -> (173, 'M', 'I')
+    - Insertions: p.W50_S51insG -> (50, 'WS', 'WSG')
+    - Deletions: p.A123del -> (123, 'A', '-')
+    - Deletion-Insertion (delins): p.X1231delinsX -> (1231, 'X', 'X')
+    - Frameshift & Nonsense Mutations -> Ignored (returns None)
 
     Returns:
-        (position, ref_aa, alt_aa) or None if parsing fails.
+        tuple: (position, ref_aa, alt_aa) or None if not applicable
     """
 
     # Single amino acid substitutions (e.g., p.M173I)
-    match = re.match(r"^p\.([A-Za-z]+)(\d+)([A-Za-z?]+)$", consequence_str)
+    print(f"hgvsp_str: {hgvsp_str}")
+    match = re.match(r"^p\.([A-Z])(\d+)([A-Z?])$", hgvsp_str)
     if match:
-        ref_aa_3, pos_str, alt_aa_3 = match.groups()
-        pos = int(pos_str)
-
-        ref_aa_1 = three_to_one.get(ref_aa_3, None)
-        alt_aa_1 = three_to_one.get(alt_aa_3, None)
-
-        if ref_aa_1 and alt_aa_1:
-            return pos, ref_aa_1, alt_aa_1
-        return None
+        ref_aa, pos, alt_aa = match.groups()
+        return int(pos), ref_aa, alt_aa
 
     # Insertions (e.g., p.W50_S51insG or p.E47_L48insSGPEE)
-    match = re.match(
-        r"^p\.([A-Za-z]+)(\d+)_([A-Za-z]+)(\d+)ins([A-Za-z]+)$", consequence_str
-    )
+    # Insertions (e.g., p.W50_S51insG)
+    match = re.match(r"^p\.([A-Z])(\d+)_([A-Z])(\d+)ins([A-Z]+)$", hgvsp_str)
     if match:
-        ref_start_aa_3, pos_start_str, ref_end_aa_3, pos_end_str, inserted_aa_3 = (
-            match.groups()
-        )
-        pos_start = int(pos_start_str)
-        pos_end = int(pos_end_str)
+        ref_start_aa, pos_start, ref_end_aa, pos_end, inserted_aa = match.groups()
+        pos_start, pos_end = int(pos_start), int(pos_end)
 
-        ref_start_aa_1 = three_to_one.get(ref_start_aa_3, None)
-        ref_end_aa_1 = three_to_one.get(ref_end_aa_3, None)
-        inserted_aa_1 = "".join(
-            [
-                three_to_one.get(aa, "")
-                for aa in re.findall(r"[A-Z][a-z]{2}", inserted_aa_3)
-            ]
-        )
+        return pos_start, ref_start_aa + ref_end_aa, ref_start_aa + inserted_aa
 
-        if ref_start_aa_1 and ref_end_aa_1 and inserted_aa_1:
-            return (
-                pos_start,
-                ref_start_aa_1 + ref_end_aa_1,
-                ref_start_aa_1 + ref_end_aa_1 + inserted_aa_1,
-            )
+    # Deletions (e.g., p.A123del)
+    match = re.match(r"^p\.([A-Z])(\d+)del$", hgvsp_str)
+    if match:
+        ref_aa, pos = match.groups()
+        return int(pos), ref_aa, "-"
+
+    # Deletion-Insertion (e.g., p.X1231delinsX)
+    match = re.match(r"^p\.([A-Z])(\d+)delins([A-Z]+)$", hgvsp_str)
+    if match:
+        ref_aa, pos, alt_aa = match.groups()
+        return int(pos), ref_aa, alt_aa
+
+    # Frameshift or nonsense mutations (ignored)
+    if "fs" in hgvsp_str or "?" in hgvsp_str or "X" in hgvsp_str:
         return None
 
-    # Frameshift or nonsense mutations (e.g., p.Q66Pfs, p.X95L, p.M1?)
-    if "fs" in consequence_str or "?" in consequence_str or "X" in consequence_str:
-        return None  # Skip frameshifts and nonsense mutations
-
     return None  # If none of the patterns match
+
+
+def fetch_transcript_protein_sequence(transcript_id):
+    """Fetches the protein sequence from Ensembl given a transcript ID (ENST_...).
+
+    - First tries the exact transcript version (e.g., ENST00000256474.3).
+    - If not found, retries with the unversioned transcript (ENST00000256474).
+
+    Args:
+        transcript_id (str): Ensembl transcript ID (e.g., ENST00000256474.3).
+
+    Returns:
+        str: Protein sequence as a string or None if not found.
+    """
+    url = f"https://rest.ensembl.org/sequence/id/{transcript_id}?type=protein&content-type=text/plain"
+
+    response = requests.get(url)
+
+    if response.status_code == 200:
+        return response.text.strip()  # Return protein sequence
+
+    # If the exact version is not found, try without the version number
+    unversioned_transcript = transcript_id.split(".")[0]  # Remove version suffix
+    if unversioned_transcript != transcript_id:
+        print(
+            f"⚠️ Transcript {transcript_id} not found, retrying with {unversioned_transcript}..."
+        )
+        return fetch_transcript_protein_sequence(unversioned_transcript)
+
+    print(f"⚠️ Failed to fetch sequence for transcript {transcript_id}.")
+    return None
 
 
 def fetch_uniprot_sequence(uniprot_id):
@@ -147,60 +165,125 @@ def run_predictions(df, model, tokenizer, device, fasta_dir="./data/protein_sequ
     """Predicts LLR for all variants, fetching sequences only if they are not saved."""
     os.makedirs(fasta_dir, exist_ok=True)  # Ensure the output directory exists
     results = []
-    unique_genes = df[["Gene", "UniProt_ID"]].drop_duplicates()
-    print(f"Unique genes: {len(unique_genes)}")
 
-    # Iterate over unique genes and fetch protein sequences if necessary
-    for _, row in unique_genes.iterrows():
+    # Ensure we process by (Gene, Transcript)
+    unique_gene_transcripts = df[["Gene", "Transcript"]].drop_duplicates()
+    print(f"Unique (Gene, Transcript) pairs: {len(unique_gene_transcripts)}")
+
+    # Iterate over unique (Gene, Transcript) pairs
+    for _, row in unique_gene_transcripts.iterrows():
         gene = row["Gene"]
-        uniprot_id = row["UniProt_ID"]
-        fasta_filename = os.path.join(fasta_dir, f"{gene}_{uniprot_id}.fasta")
+        transcript = row["Transcript"]
+
+        fasta_filename = os.path.join(fasta_dir, f"{gene}_{transcript}.fasta")
 
         # Try loading from saved FASTA first
         protein_seq = load_protein_sequence_from_fasta(fasta_filename)
-        print(f"Loaded sequence for {gene} ({uniprot_id}) from {fasta_filename}")
-
-        if not protein_seq:
-            print(f"Fetching sequence for {gene} ({uniprot_id}) from UniProt...")
-            protein_seq = fetch_uniprot_sequence(uniprot_id)
+        if protein_seq:
+            print(f"Loaded sequence for {gene} ({transcript}) from {fasta_filename}")
+        else:
+            print(
+                f"Fetching sequence for {gene} ({transcript}) from UniProt or Ensembl..."
+            )
+            protein_seq = fetch_transcript_protein_sequence(
+                transcript
+            )  # Updated to fetch by transcript
 
             if protein_seq:
                 # Save the sequence for future use
                 with open(fasta_filename, "w") as f:
-                    f.write(f">{gene}_{uniprot_id}\n{protein_seq}\n")
+                    f.write(f">{gene}_{transcript}\n{protein_seq}\n")
                 print(f"Saved sequence: {fasta_filename}")
             else:
                 print(
-                    f"Failed to retrieve sequence for {gene} ({uniprot_id}), skipping..."
+                    f"⚠️ Failed to retrieve sequence for {gene} ({transcript}), skipping..."
                 )
-                continue  # Skip this gene if no sequence is available
+                continue  # Skip this transcript if no sequence is available
 
         # Encode protein sequence for the model
         input_ids = tokenizer.encode(protein_seq, return_tensors="pt").to(device)
 
-        # Process variants for this gene
-        gene_variants = df[df["Gene"] == gene]
-        for _, var in gene_variants.iterrows():
-            parsed = parse_protein_consequence(var["HGVSp"])
+        # Process variants for this (Gene, Transcript) pair
+        transcript_variants = df[
+            (df["Gene"] == gene) & (df["Transcript"] == transcript)
+        ]
+        for _, var in transcript_variants.iterrows():
+            parsed = parse_hgvsp(var["HGVSp"])
             if not parsed:
+                print(f"⚠️ Warning: Invalid HGVSp notation: {var['HGVSp']}, skipping...")
                 continue
 
             prot_pos, ref_aa, alt_aa = parsed
+            print(
+                f"Processing variant: {gene} ({transcript}) {prot_pos} {ref_aa} -> {alt_aa}"
+            )
 
-            print(f"Processing variant: {gene} {prot_pos} {ref_aa} -> {alt_aa}")
-            # Validate sequence match
-            if protein_seq[prot_pos - 1] != ref_aa:
-                print(
-                    f"Warning: Mismatch at position {prot_pos} in {gene}, skipping..."
-                )
+            # **Variant Validation**
+            if "ins" in var["HGVSp"]:  # **Insertion validation**
+                if (prot_pos - 1 < len(protein_seq)) and (prot_pos < len(protein_seq)):
+                    if (
+                        protein_seq[prot_pos - 1] == ref_aa[0]
+                        and protein_seq[prot_pos] == ref_aa[1]
+                    ):
+                        print(
+                            f"✅ Valid Insertion: {gene} at {prot_pos}, {ref_aa} -> {alt_aa}"
+                        )
+                    else:
+                        print(
+                            f"❌ Invalid Insertion: Expected {ref_aa} at {prot_pos}, found {protein_seq[prot_pos - 1:prot_pos+1]}. Skipping..."
+                        )
+                        continue
+                else:
+                    print(
+                        f"❌ Index out of range: {prot_pos} exceeds sequence length ({len(protein_seq)}). Skipping..."
+                    )
+                    continue
+
+            elif "delins" in var["HGVSp"]:  # **Delins validation**
+                if protein_seq[prot_pos - 1] == ref_aa:
+                    print(
+                        f"✅ Valid Delins: {gene} at {prot_pos}, {ref_aa} -> {alt_aa}"
+                    )
+                else:
+                    print(
+                        f"❌ Invalid Delins: Expected {ref_aa} at {prot_pos}, found {protein_seq[prot_pos - 1]}. Skipping..."
+                    )
+                    continue
+
+            elif "del" in var["HGVSp"]:  # **Deletion validation**
+                if protein_seq[prot_pos - 1] == ref_aa:
+                    print(
+                        f"✅ Valid Deletion: {gene} at {prot_pos}, {ref_aa} -> {alt_aa}"
+                    )
+                else:
+                    print(
+                        f"❌ Invalid Deletion: Expected {ref_aa} at {prot_pos}, found {protein_seq[prot_pos - 1]}. Skipping..."
+                    )
+                    continue
+
+            elif (
+                "fs" in var["HGVSp"] or "?" in var["HGVSp"] or "X" in var["HGVSp"]
+            ):  # **Frameshift/Nonsense case**
+                print(f"⏩ Skipping frameshift/nonsense mutation: {var['HGVSp']}")
                 continue
+
+            else:  # **Substitution validation**
+                if protein_seq[prot_pos - 1] == ref_aa:
+                    print(
+                        f"✅ Valid Substitution: {gene} at {prot_pos}, {ref_aa} -> {alt_aa}"
+                    )
+                else:
+                    print(
+                        f"❌ Invalid Substitution: Expected {ref_aa} at {prot_pos}, found {protein_seq[prot_pos - 1]}. Skipping..."
+                    )
+                    continue
 
             # Compute LLR
             llr = compute_llr(model, tokenizer, input_ids, prot_pos, ref_aa, alt_aa)
             results.append(
                 {
                     "Gene": gene,
-                    "UniProt_ID": uniprot_id,
+                    "Transcript": transcript,
                     "HGVSp": var["HGVSp"],
                     "ProteinPos": prot_pos,
                     "RefAA": ref_aa,
@@ -302,7 +385,8 @@ if __name__ == "__main__":
     print(f"Current directory: {os.getcwd()}")
 
     # 1) Load dataset
-    file_path = "./data/nonACMGPLP_pLoF_allinfo_AA_simplified_with_UniProt_IDs.xlsx"
+    file_path = "./data/test_Predictions.xlsx"
+    #    file_path = "./data/nonACMGPLP_pLoF_allinfo_AA_simplified_with_UniProt_IDs.xlsx"
     df = pd.read_excel(
         file_path, dtype={"#CHROM": str, "REF": str, "ALT": str, "Gene": str}
     )
