@@ -112,11 +112,11 @@ def fetch_transcript_protein_sequence(transcript_id):
     unversioned_transcript = transcript_id.split(".")[0]  # Remove version suffix
     if unversioned_transcript != transcript_id:
         print(
-            f"⚠️ Transcript {transcript_id} not found, retrying with {unversioned_transcript}..."
+            f"Transcript {transcript_id} not found, retrying with {unversioned_transcript}..."
         )
         return fetch_transcript_protein_sequence(unversioned_transcript)
 
-    print(f"⚠️ Failed to fetch sequence for transcript {transcript_id}.")
+    print(f"Failed to fetch sequence for transcript {transcript_id}.")
     return None
 
 
