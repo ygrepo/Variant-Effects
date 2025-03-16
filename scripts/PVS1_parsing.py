@@ -122,11 +122,11 @@ def load_protein_sequence_from_fasta(fasta_path):
     return "".join(line.strip() for line in lines if not line.startswith(">"))
 
 
-def validate_hgvsp(parsed_hvsp, prot_pos, ref_aa, alt_aa , protein_seq, gene):
+def validate_hgvsp(parsed_hvsp, protein_seq, gene, transcript):
     """
     Validates the hgvsp data to ensure it meets certain criteria.
     """
-    prot_pos, ref_aa, alt_aa = parsed
+    prot_pos, ref_aa, alt_aa = parsed_hvsp
     print(f"Processing variant: {gene} ({transcript}) {prot_pos} {ref_aa} -> {alt_aa}")
 
     # **Variant Validation**
@@ -136,43 +136,41 @@ def validate_hgvsp(parsed_hvsp, prot_pos, ref_aa, alt_aa , protein_seq, gene):
                 protein_seq[prot_pos - 1] == ref_aa[0]
                 and protein_seq[prot_pos] == ref_aa[1]
             ):
-                print(f"✅ Valid Insertion: {gene} at {prot_pos}, {ref_aa} -> {alt_aa}")
+                print(f"Valid Insertion: {gene} at {prot_pos}, {ref_aa} -> {alt_aa}")
             else:
                 print(
-                    f"❌ Invalid Insertion: Expected {ref_aa} at {prot_pos}. Skipping..."
+                    f"Invalid Insertion: Expected {ref_aa} at {prot_pos}. Skipping..."
                 )
                 return
         else:
-            print(f"❌ Out of range: {prot_pos} > {len(protein_seq)}. Skipping...")
+            print(f"Out of range: {prot_pos} > {len(protein_seq)}. Skipping...")
             return
 
     elif "delins" in parsed_hvsp:  # **Delins validation**
         if protein_seq[prot_pos - 1] == ref_aa:
-            print(f"✅ Valid Delins: {gene} at {prot_pos}, {ref_aa} -> {alt_aa}")
+            print(f"Valid Delins: {gene} at {prot_pos}, {ref_aa} -> {alt_aa}")
         else:
-            print(f"❌ Invalid Delins: Expected {ref_aa} at {prot_pos}. Skipping...")
+            print(f"Invalid Delins: Expected {ref_aa} at {prot_pos}. Skipping...")
             return
 
     elif "del" in parsed_hvsp:  # **Deletion validation**
         if protein_seq[prot_pos - 1] == ref_aa:
-            print(f"✅ Valid Deletion: {gene} at {prot_pos}, {ref_aa} -> {alt_aa}")
+            print(f"Valid Deletion: {gene} at {prot_pos}, {ref_aa} -> {alt_aa}")
         else:
-            print(f"❌ Invalid Deletion: Expected {ref_aa} at {prot_pos}. Skipping...")
+            print(f"Invalid Deletion: Expected {ref_aa} at {prot_pos}. Skipping...")
             return
 
     elif (
         "fs" in parsed_hvsp or "?" in parsed_hvsp or "X" in parsed_hvsp
     ):  # **Frameshift/Nonsense**
-        print(f"⏩ Skipping frameshift/nonsense mutation: {parsed_hvsp}")
+        print(f"Skipping frameshift/nonsense mutation: {parsed_hvsp}")
         return
 
     else:  # **Substitution validation**
         if protein_seq[prot_pos - 1] == ref_aa:
-            print(f"✅ Valid Substitution: {gene} at {prot_pos}, {ref_aa} -> {alt_aa}")
+            print(f"Valid Substitution: {gene} at {prot_pos}, {ref_aa} -> {alt_aa}")
         else:
-            print(
-                f"❌ Invalid Substitution: Expected {ref_aa} at {prot_pos}. Skipping..."
-            )
+            print(f"Invalid Substitution: Expected {ref_aa} at {prot_pos}. Skipping...")
             return
 
 
@@ -218,41 +216,32 @@ def parse(df, fasta_dir="./data/protein_sequences"):
             (df["Gene"] == gene) & (df["Transcript"] == transcript)
         ]
         for _, var in transcript_variants.iterrows():
-            parsed = parse_hgvsp(var["HGVSp"])
-            if not parsed:
+            parsed_hvsp = parse_hgvsp(var["HGVSp"])
+            if not parsed_hvsp:
                 print(f"Warning: Invalid HGVSp notation: {var['HGVSp']}, skipping...")
                 continue
 
-             validate_hgvsp(parsed_hvsp, protein_seq, gene)
+            validate_hgvsp(parsed_hvsp, protein_seq, gene, transcript)
 
-    # Ensure we process by (Gene, Transcript)
-    unique_gene_transcripts = df[["Gene", "Transcript"]].drop_duplicates()
-    print(f"Unique (Gene, Transcript) pairs: {len(unique_gene_transcripts)}")
-    protein_sequences = {}
+    # # Ensure we process by (Gene, Transcript)
+    # # Ensure we process by (Gene, Transcript)
+    # unique_gene_transcripts = df[["Gene", "Transcript"]].drop_duplicates()
+    # print(f"Unique (Gene, Transcript) pairs: {len(unique_gene_transcripts)}")
+    # protein_sequences = {}
 
-    # Fetch protein sequences once per transcript
-    for transcript in unique_transcripts:
-        protein_seq = fetch_transcript_protein_sequence(transcript)
-        if protein_seq:
-            protein_sequences[transcript] = protein_seq
+    # # Iterate over unique (Gene, Transcript) pairs
+    # for _, row in unique_gene_transcripts.iterrows():
+    #     gene, transcript, hgvsp = row["Gene"], row["Transcript"], row.get("HGVSp", "")
 
-    # Ensure we process by (Gene, Transcript)
-    unique_gene_transcripts = df[["Gene", "Transcript"]].drop_duplicates()
-    print(f"Unique (Gene, Transcript) pairs: {len(unique_gene_transcripts)}")
+    #     if transcript not in protein_sequences:
+    #         print(
+    #             f"Skipping protein_sequences {transcript} for gene {gene} - no sequence found."
+    #         )
+    #         continue  # Skip if no sequence is found
 
-    # Iterate over unique (Gene, Transcript) pairs
-    for _, row in unique_gene_transcripts.iterrows():
-        gene, transcript, hgvsp = row["Gene"], row["Transcript"], row.get("HGVSp", "")
-
-        if transcript not in protein_sequences:
-            print(
-                f"Skipping protein_sequences {transcript} for gene {gene} - no sequence found."
-            )
-            continue  # Skip if no sequence is found
-
-        protein_seq = protein_sequences[transcript]
-        parsed_hvsp = parse_hgvsp(hgvsp)
-        validate_hgvsp(parsed_hvsp, protein_seq, gene)
+    #     protein_seq = protein_sequences[transcript]
+    #     parsed_hvsp = parse_hgvsp(hgvsp)
+    #     validate_hgvsp(parsed_hvsp, protein_seq, gene, transcript)
 
 
 if __name__ == "__main__":
@@ -263,3 +252,4 @@ if __name__ == "__main__":
     df = pd.read_excel(
         file_path, dtype={"#CHROM": str, "REF": str, "ALT": str, "Gene": str}
     )
+    parse(df)
