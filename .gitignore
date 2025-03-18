@@ -6,3 +6,4 @@ poetry.lock
 pyproject.toml
 pickle/
 qsubs/
+scripts/__pycache__/

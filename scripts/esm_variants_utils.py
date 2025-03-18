@@ -127,16 +127,7 @@ def load_model(model_name, load_flag=True):
         raise ValueError(f"Unsupported model name: {model_name}")
 
 
-def get_batch_converter(tokenizer, device, sequences):
-    batch_tokens = tokenizer(
-        sequences, return_tensors="pt", padding=True, truncation=True
-    )
-    return batch_tokens["input_ids"].to(device)
-
-
-def get_wt_LLR(
-    input_df, model, tokenizer, batch_converter, device="cuda", silent=False
-):
+def get_wt_LLR(input_df, model, tokenizer, device="cuda", silent=False):
     """
     Compute Wild-Type Log-Likelihood Ratio (LLR) for protein sequences.
     Supports Hugging Face's ESM model instead of Facebook's alphabet.
@@ -294,7 +285,7 @@ def get_logits(seq, model, tokenizer, format=None, device=0):
         return logits  # Return raw logits matrix
 
 
-def get_PLL(seq, model, tokenizer, batch_converter, reduce=np.sum, device=0):
+def get_PLL(seq, model, tokenizer, reduce=np.sum, device=0):
     """
     Compute the Protein Log-Likelihood (PLL) for a given sequence.
     """
@@ -387,7 +378,6 @@ def get_PLLR(
     start_pos,
     model,
     tokenizer,  # Replace alphabet with tokenizer
-    batch_converter,
     weighted=False,
     device=0,
 ):
@@ -401,14 +391,12 @@ def get_PLLR(
             mut_seq,
             model=model,
             tokenizer=tokenizer,  # Pass tokenizer to the function
-            batch_converter=batch_converter,
             reduce=fn,
             device=device,
         ) - get_PLL(
             wt_seq,
             model=model,
             tokenizer=tokenizer,  # Pass tokenizer to the function
-            batch_converter=batch_converter,
             reduce=fn,
             device=device,
         )
@@ -418,14 +406,12 @@ def get_PLLR(
             mut_seq,
             model=model,
             tokenizer=tokenizer,
-            batch_converter=batch_converter,
             reduce=fn,
             device=device,
         ) - get_PLL(
             wt_seq,
             model=model,
             tokenizer=tokenizer,
-            batch_converter=batch_converter,
             reduce=fn,
             device=device,
         )
@@ -459,7 +445,7 @@ def crop_indel(ref_seq, alt_seq, ref_start):
 
 
 ## stop gain variant score
-def get_minLLR(seq, stop_pos, model, tokenizer, batch_converter, device=0):
+def get_minLLR(seq, stop_pos, model, tokenizer, device=0):
     """
     Compute the minimum LLR score after a given stop position.
 
@@ -474,7 +460,7 @@ def get_minLLR(seq, stop_pos, model, tokenizer, batch_converter, device=0):
 
     # Compute LLR matrix for the wild-type sequence
     input_df_ids, LLRs = get_wt_LLR(
-        seq_df, model, tokenizer, batch_converter, device=device, silent=True
+        seq_df, model, tokenizer, device=device, silent=True
     )
 
     # Ensure we have valid LLR values
