@@ -8,13 +8,15 @@ from esm_variants_utils import (
     get_wt_LLR,
     get_PLLR,
     get_minLLR,
+    get_start_loss_LLR,
+    compute_delins_llr,
 )
 
 
 # Directory for protein sequences
 FASTA_DIR = "./data/protein_sequences/"
 VARIANTS_FILE = "./data/variants_processed.xlsx"
-OUTPUT_FILE = "./data/variants_with_llr.csv"
+OUTPUT_FILE = "./data/variants_with_llr.xlsx"
 
 
 # Compute LLR for missense and nonsense mutations
@@ -80,7 +82,10 @@ def run_llr_predictions(model, tokenizer, device):
         ref_aa = row["RefAA"]
         alt_aa = row["AltAA"]
         mutation_type = row["MutationType"]
-
+        print(
+            f"Processing {gene} {transcript} {mutation_type}",
+            f"{position} {ref_aa} -> {alt_aa}",
+        )
         # Compute LLR based on mutation type
         if mutation_type in ["Missense", "Nonsense"]:
             llr = compute_llr(
@@ -93,6 +98,27 @@ def run_llr_predictions(model, tokenizer, device):
             llr = compute_pllr(model, tokenizer, protein_seq, mut_seq, position, device)
         elif mutation_type == "Stop Loss":
             llr = get_minLLR(protein_seq, position, model, tokenizer, device)
+        elif mutation_type == "Start Loss":  # ✅ New case for Start Loss
+            llr = get_start_loss_LLR(protein_seq, model, tokenizer, device)
+        elif mutation_type == "Delins":
+            # Ensure the mutation is properly formatted
+            if alt_aa == "X":
+                if position > len(protein_seq):  # Check if position is valid
+                    print(f"Skipping {gene} {transcript} {mutation_type} at {position} (Position out of range)")
+                    llr = "N/A"
+                elif protein_seq[position - 1] == "X":  # Stop codon remains unchanged
+                    print(f"Skipping {gene} {transcript} {mutation_type} at {position} (Stop codon remains unchanged)")
+                    llr = "N/A"
+                else:
+                    # Stop codon moves later, compute LLR
+                    print(f"Stop codon shifts for {gene} {transcript} {mutation_type} at {position}")
+                    mut_seq = protein_seq[: position - 1] + alt_aa + protein_seq[position:]
+                    llr = compute_delins_llr(model, tokenizer, protein_seq, mut_seq, position, device)
+            else:
+                # Normal Delins processing
+                mut_seq = protein_seq[: position - 1] + alt_aa + protein_seq[position:]
+                llr = compute_delins_llr(model, tokenizer, protein_seq, mut_seq, position, device)
+
         else:
             llr = "N/A"
 
@@ -112,7 +138,7 @@ def run_llr_predictions(model, tokenizer, device):
 
     # Save results
     df_results = pd.DataFrame(results)
-    df_results.to_csv(OUTPUT_FILE, index=False)
+    df_results.to_excel(OUTPUT_FILE, index=False)
     print(f"LLR predictions saved to {OUTPUT_FILE}")
 
 

@@ -130,10 +130,11 @@ def load_model(model_name, load_flag=True):
 def get_wt_LLR(input_df, model, tokenizer, device="cuda", silent=False):
     """
     Compute Wild-Type Log-Likelihood Ratio (LLR) for protein sequences.
-    Supports Hugging Face's ESM model instead of Facebook's alphabet.
+    Uses Hugging Face ESM model instead of Facebook's alphabet-based version.
     """
     device = torch.device(device if torch.cuda.is_available() else "cpu")
 
+    # Standard amino acid order
     AAorder = [
         "K",
         "R",
@@ -157,97 +158,64 @@ def get_wt_LLR(input_df, model, tokenizer, device="cuda", silent=False):
         "W",
     ]
 
-    genes = input_df["id"].values
     LLRs = []
     input_df_ids = []
 
-    for gname in tqdm(genes, disable=silent):
-        seq_length = input_df[input_df["id"] == gname]["length"].values[0]
-        sequence = input_df[input_df["id"] == gname]["seq"].values[0]
+    for _, row in tqdm(input_df.iterrows(), total=len(input_df), disable=silent):
+        gname = row["id"]
+        sequence = row["seq"]
+        seq_length = len(sequence)
 
-        if seq_length <= 1022:
-            # **Tokenize using Hugging Face's EsmTokenizer**
-            batch_tokens = tokenizer(
-                sequence, return_tensors="pt", padding=True, truncation=True
-            )
-            batch_tokens = batch_tokens["input_ids"].to(device)
+        # ✅ Ensure the sequence length matches the model's output
+        if seq_length > 1022:
+            print(f"Warning: {gname} sequence is too long ({seq_length}). Truncating!")
+            sequence = sequence[:1022]  # ✅ Truncate to max ESM2 sequence length
 
-            # **Run ESM model**
-            with torch.no_grad():
-                results_ = (
-                    torch.log_softmax(model(batch_tokens)["logits"], dim=-1)
-                    .cpu()
-                    .numpy()
+        # ✅ Tokenization with attention_mask
+        batch_tokens = tokenizer(
+            sequence,
+            return_tensors="pt",
+            padding="max_length",
+            truncation=True,
+            max_length=1022,
+        )
+        batch_tokens = {k: v.to(device) for k, v in batch_tokens.items()}
+
+        # ✅ Run ESM model
+        with torch.no_grad():
+            results_ = (
+                torch.log_softmax(
+                    model(
+                        batch_tokens["input_ids"],
+                        attention_mask=batch_tokens["attention_mask"],
+                    )["logits"],
+                    dim=-1,
                 )
-
-            # **Extract WT log probabilities**
-            WTlogits = pd.DataFrame(
-                results_[0, 1:-1, :],  # Remove special tokens
-                columns=tokenizer.get_vocab().keys(),  # Use Hugging Face tokenizer vocab
-                index=list(sequence),
-            ).T.loc[AAorder]
-
-            WTlogits.columns = [
-                j.split(".")[0] + " " + str(i + 1)
-                for i, j in enumerate(WTlogits.columns)
-            ]
-
-            wt_norm = np.diag(WTlogits.loc[[i.split(" ")[0] for i in WTlogits.columns]])
-            LLR = WTlogits - wt_norm
-
-            LLRs.append(LLR)
-            input_df_ids.append(gname)
-
-        else:
-            ### **Tiling for Long Sequences**
-            long_seq = sequence
-            ints, M, M_norm = get_intervals_and_weights(
-                len(long_seq), min_overlap=512, max_len=1022, s=20
+                .cpu()
+                .numpy()
             )
 
-            dt = ["".join(np.array(list(long_seq))[idx]) for idx in ints]
-            logit_parts = []
+        # ✅ Adjust the sequence length to match logits
+        actual_seq_length = min(
+            seq_length, results_.shape[1] - 2
+        )  # ✅ Adjust for special tokens
+        logit_data = results_[0, 1 : actual_seq_length + 1, :]  # ✅ Extract valid range
 
-            for dt_ in chunks(dt, 20):
-                batch_tokens = tokenizer(
-                    dt_, return_tensors="pt", padding=True, truncation=True
-                )
-                batch_tokens = batch_tokens["input_ids"].to(device)
+        # ✅ Extract WT log probabilities
+        WTlogits = pd.DataFrame(
+            logit_data,
+            columns=tokenizer.get_vocab().keys(),
+            index=list(sequence[:actual_seq_length]),  # ✅ Ensure correct index length
+        ).T.loc[AAorder]
 
-                with torch.no_grad():
-                    results_ = (
-                        torch.log_softmax(model(batch_tokens)["logits"], dim=-1)
-                        .cpu()
-                        .numpy()
-                    )
+        WTlogits.columns = [f"{aa} {i+1}" for i, aa in enumerate(WTlogits.columns)]
 
-                for i in range(results_.shape[0]):
-                    logit_parts.append(results_[i, 1:-1, :])
+        # ✅ Compute LLR
+        wt_norm = np.diag(WTlogits.loc[[aa.split(" ")[0] for aa in WTlogits.columns]])
+        LLR = WTlogits - wt_norm
 
-            # **Merge tiled logits**
-            logits_full = np.zeros((len(long_seq), len(AAorder)))
-            for i in range(len(ints)):
-                logit = np.zeros((len(long_seq), len(AAorder)))
-                logit[ints[i]] = logit_parts[i]
-                logit = np.multiply(logit.T, M_norm[i, :]).T
-                logits_full += logit
-
-            WTlogits = pd.DataFrame(
-                logits_full,
-                columns=tokenizer.get_vocab().keys(),
-                index=list(sequence),
-            ).T.loc[AAorder]
-
-            WTlogits.columns = [
-                j.split(".")[0] + " " + str(i + 1)
-                for i, j in enumerate(WTlogits.columns)
-            ]
-
-            wt_norm = np.diag(WTlogits.loc[[i.split(" ")[0] for i in WTlogits.columns]])
-            LLR = WTlogits - wt_norm
-
-            LLRs.append(LLR)
-            input_df_ids.append(gname)
+        LLRs.append(LLR)
+        input_df_ids.append(gname)
 
     return input_df_ids, LLRs
 
@@ -314,6 +282,79 @@ def meltLLR(LLR, savedir=None):
     if savedir is not None:
         vars.to_csv(savedir + "var_scores.csv")
     return vars
+
+
+def get_start_loss_LLR(seq, model, tokenizer, device):
+    """
+    Compute the LLR for start-loss mutations.
+    - If the start codon is lost, look at downstream methionines (alternative starts).
+    - Compute LLR at M1 and compare with alternative start sites.
+    """
+    # ✅ Compute Wild-Type LLR for the sequence
+    seq_df = pd.DataFrame(
+        [("_", "_", seq, len(seq))], columns=["id", "gene", "seq", "length"]
+    )
+    input_df_ids, LLRs = get_wt_LLR(
+        seq_df, model, tokenizer, device=device, silent=True
+    )
+
+    if len(LLRs) == 0:
+        return "N/A"  # No valid LLR computed
+
+    llr_matrix = LLRs[0]  # Extract LLR matrix
+
+    # ✅ Compute LLR at position 1 (Start Codon)
+    try:
+        start_loss_llr = llr_matrix.loc[
+            "M", "M 1"
+        ]  # Check if M1 exists in the LLR matrix
+    except KeyError:
+        print("Warning: M1 not found in LLR matrix. Check tokenization.")
+        return "N/A"
+
+    # ✅ Find alternative start sites (Methionines)
+    alternative_sites = [col for col in llr_matrix.columns if col.startswith("M ")]
+    alternative_llrs = [
+        llr_matrix.loc["M", col]
+        for col in alternative_sites
+        if int(col.split(" ")[1]) > 1
+    ]
+
+    # ✅ If alternative start sites exist, return the lowest LLR
+    if alternative_llrs:
+        return min(
+            start_loss_llr, min(alternative_llrs)
+        )  # Use the most likely alternative start
+
+    return start_loss_llr  # If no alternative, return M1 LLR
+
+
+def compute_delins_llr(model, tokenizer, wt_seq, mut_seq, position, device):
+    """
+    Compute the Log-Likelihood Ratio (LLR) for a Delins mutation using Hugging Face's ESM model.
+    """
+    # Tokenize both the wild-type (WT) and mutant sequences
+    wt_tokens = tokenizer(wt_seq, return_tensors="pt", padding=True, truncation=True)
+    mut_tokens = tokenizer(mut_seq, return_tensors="pt", padding=True, truncation=True)
+
+    wt_tokens = wt_tokens["input_ids"].to(device)
+    mut_tokens = mut_tokens["input_ids"].to(device)
+
+    # Compute log probabilities for WT and Mutant sequences
+    with torch.no_grad():
+        wt_logits = torch.log_softmax(model(wt_tokens)["logits"], dim=-1).cpu().numpy()
+        mut_logits = (
+            torch.log_softmax(model(mut_tokens)["logits"], dim=-1).cpu().numpy()
+        )
+
+    # Extract log-likelihoods at the mutation position
+    wt_ll = wt_logits[0, position, :]
+    mut_ll = mut_logits[0, position, :]
+
+    # Compute LLR
+    llr = np.sum(mut_ll - wt_ll)
+
+    return llr
 
 
 ##################### TILING utils ###########################
