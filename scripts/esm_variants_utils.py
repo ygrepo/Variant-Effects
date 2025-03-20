@@ -180,7 +180,6 @@ def get_wt_LLR(input_df, model, tokenizer, device="cuda", silent=False):
             max_length=1022,
         )
         batch_tokens = {k: v.to(device) for k, v in batch_tokens.items()}
-
         # ✅ Run ESM model
         with torch.no_grad():
             results_ = (
@@ -459,30 +458,59 @@ def get_PLLR(
 
 
 def crop_indel(ref_seq, alt_seq, ref_start):
-    # Start pos: 1-indexed start position of variant
-    left_pos = ref_start - 1
-    offset = len(ref_seq) - len(alt_seq)
-    start_pos = int(left_pos - 1022 / 2)
-    end_pos1 = int(left_pos + 1022 / 2) - min(start_pos, 0) + min(offset, 0)
-    end_pos2 = int(left_pos + 1022 / 2) - min(start_pos, 0) - max(offset, 0)
-    if start_pos < 0:
-        start_pos = 0  # Make sure the start position is not negative
-    if end_pos1 > len(ref_seq):
-        end_pos1 = len(
-            ref_seq
-        )  # Make sure the end positions are not beyond the end of the sequence
-    if end_pos2 > len(alt_seq):
-        end_pos2 = len(alt_seq)
-    if (
-        start_pos > 0 and max(end_pos2, end_pos1) - start_pos < 1022
-    ):  ## extend to the left if there's space
-        start_pos = max(0, max(end_pos2, end_pos1) - 1022)
+    max_len = 1022  # Maximum length allowed by ESM model
+    left_pos = ref_start - 1  # Convert 1-based index to 0-based
 
-    return (
-        ref_seq[start_pos:end_pos1],
-        alt_seq[start_pos:end_pos2],
-        start_pos - ref_start,
-    )
+    # ✅ If sequence is already short enough, return unchanged
+    if len(ref_seq) <= max_len and len(alt_seq) <= max_len:
+        return ref_seq, alt_seq, ref_start  # Keep mutation position unchanged
+
+    # ✅ Center the mutation in the cropped sequence
+    start_pos = max(0, left_pos - max_len // 2)
+    end_pos1 = min(start_pos + max_len, len(ref_seq))  # Crop for WT
+    end_pos2 = min(start_pos + max_len, len(alt_seq))  # Crop for Mutant
+
+    # ✅ Adjust cropping to ensure mutation remains visible
+    if left_pos < start_pos:
+        start_pos = max(0, left_pos - 50)  # Shift left to keep mutation
+        end_pos1 = min(start_pos + max_len, len(ref_seq))
+        end_pos2 = min(start_pos + max_len, len(alt_seq))
+
+    adj_pos = ref_start - start_pos  # ✅ Fix mutation position adjustment
+
+    return ref_seq[start_pos:end_pos1], alt_seq[start_pos:end_pos2], adj_pos
+
+
+# def crop_indel(ref_seq, alt_seq, ref_start):
+#     max_len = 1022  # Maximum length allowed by ESM model
+#     # Start pos: 1-indexed start position of variant
+#     left_pos = ref_start - 1
+#     offset = len(ref_seq) - len(alt_seq)
+#     # ✅ If sequence is already short enough, no cropping needed
+#     if len(ref_seq) <= max_len and len(alt_seq) <= max_len:
+#         return ref_seq, alt_seq, ref_start  # Keep mutation position unchanged
+
+#     start_pos = int(left_pos - 1022 / 2)
+#     end_pos1 = int(left_pos + 1022 / 2) - min(start_pos, 0) + min(offset, 0)
+#     end_pos2 = int(left_pos + 1022 / 2) - min(start_pos, 0) - max(offset, 0)
+#     if start_pos < 0:
+#         start_pos = 0  # Make sure the start position is not negative
+#     if end_pos1 > len(ref_seq):
+#         end_pos1 = len(
+#             ref_seq
+#         )  # Make sure the end positions are not beyond the end of the sequence
+#     if end_pos2 > len(alt_seq):
+#         end_pos2 = len(alt_seq)
+#     if (
+#         start_pos > 0 and max(end_pos2, end_pos1) - start_pos < 1022
+#     ):  ## extend to the left if there's space
+#         start_pos = max(0, max(end_pos2, end_pos1) - 1022)
+
+#     return (
+#         ref_seq[start_pos:end_pos1],
+#         alt_seq[start_pos:end_pos2],
+#         start_pos - ref_start,
+#     )
 
 
 ## stop gain variant score
@@ -523,21 +551,52 @@ def get_minLLR(seq, stop_pos, model, tokenizer, device=0):
     return np.min(llr_matrix.values[:, stop_pos:])
 
 
-# ############### EXAMLE ##################
-# ## Load model
-# model,alphabet,batch_converter,repr_layer = load_esm_model(model_name='esm1b_t33_650M_UR50S',device='cuda')
-# ## Create a toy dataset
-# df_in = pd.DataFrame([('P1','gene1','FISHWISHFQRCHIPSTHATARECRISP',28),
-#                       ('P2','gene2','RAGEAGAINSTTHEMACHINE',21),
-#                       ('P3','gene3','SHIPSSAILASFISHSWIM',19),
-#                       ('P4','gene4','A'*1948,1948)], columns = ['id','gene','seq','length'])
-# ## Get LLRs
-# ids,LLRs = get_wt_LLR(df_in)
-# for i,LLR in zip(ids,LLRs):
-#   print(i,LLR.shape)
-# ## Get PLL
-# print(get_PLL(df_in.seq.values[0]))
-# ## indel: 14_IPS_delins_EESE (FISHWISHFQRCHIPSTHATARECRISP --> FISHWISHFQRCHEESETHATARECRISP)
-# get_PLLR('FISHWISHFQRCHIPSTHATARECRISP','FISHWISHFQRCHEESETHATARECRISP',14)
-# ## stop at position 17
-# get_minLLR(df_in.seq.values[0],17)
+# ############### EXAMPLE ##################
+if __name__ == "__main__":
+    # ## Load model
+    model, tokenizer, device = load_model("facebook/esm2_t6_8M_UR50D")
+    # model,alphabet,batch_converter,repr_layer = load_esm_model(model_name='esm1b_t33_650M_UR50S',device='cuda')
+    ## Create a toy dataset
+    df_in = pd.DataFrame(
+        [
+            ("P1", "gene1", "FISHWISHFQRCHIPSTHATARECRISP", 28),
+            ("P2", "gene2", "RAGEAGAINSTTHEMACHINE", 21),
+            ("P3", "gene3", "SHIPSSAILASFISHSWIM", 19),
+            ("P4", "gene4", "A" * 1948, 1948),
+        ],
+        columns=["id", "gene", "seq", "length"],
+    )
+    ## Get LLRs
+    ids, LLRs = get_wt_LLR(
+        df_in, model=model, tokenizer=tokenizer, device=device, silent=False
+    )
+    for i, LLR in zip(ids, LLRs):
+        print(i, LLR.shape)
+    sequence = "MADEEKLPPGWEKRMSRSSGRVYYFNHITNASQWERPSGNAV"
+    logits = get_logits(sequence, model, tokenizer, format="pandas", device="cpu")
+    print(logits)
+
+    ## Get PLL
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    print(get_PLL(df_in.seq.values[0], model, tokenizer, device=device))
+    # indel: 14_IPS_delins_EESE (FISHWISHFQRCHIPSTHATARECRISP --> FISHWISHFQRCHEESETHATARECRISP)
+    print(
+        get_PLLR(
+            "FISHWISHFQRCHIPSTHATARECRISP",
+            "FISHWISHFQRCHEESETHATARECRISP",
+            14,
+            model,
+            tokenizer,  # Replace alphabet with tokenizer
+            weighted=False,
+            device=device,
+        )
+    )
+    ## stop at position 17
+    print(get_minLLR(df_in.seq.values[0], 17, model, tokenizer, device=device))
+    ref_seq = "MKVLWAALLVTFLAGCQAKVE"  # 21 amino acids (WT)
+    alt_seq = "MKVLWAALLVTFLAGCQAKVEE"  # 22 amino acids (Mutant with insertion)
+    ref_start = 10  # Indel at position 10
+    ref_cropped, alt_cropped, adj_pos = crop_indel(ref_seq, alt_seq, ref_start)
+    print(ref_cropped)  # "MKVLWAALLVTF" (1022-length)
+    print(alt_cropped)  # "MKVLWAALLVTF" (1022-length)
+    print(adj_pos)  # Adjusted position relative to cropped sequence
