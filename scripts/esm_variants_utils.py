@@ -363,9 +363,6 @@ def get_local_PLL(seq, model, tokenizer, device=0):
     Compute local PLL values for each position in the sequence.
     This function obtains the logits from the model, then extracts the PLL value
     (the log-likelihood of the actual residue) for each position.
-
-    Assumes get_logits returns a 2D numpy array of shape (L, vocab_size),
-    where L is the sequence length.
     """
     # Get logits from the model for the entire sequence.
     s = get_logits(seq, model=model, tokenizer=tokenizer, device=device)

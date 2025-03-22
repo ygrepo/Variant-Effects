@@ -100,7 +100,6 @@ def run_llr_predictions(model, tokenizer, device):
             llr = get_minLLR(protein_seq, position, model, tokenizer, device)
         elif mutation_type == "Start Loss":
             llr = get_start_loss_LLR(protein_seq, model, tokenizer, device)
-        # Example of handling the mutation type elsewhere in your code:
         elif mutation_type == "Delins":
             # Ensure the mutation is properly formatted
             if alt_aa == "X":
@@ -158,7 +157,7 @@ def run_llr_predictions(model, tokenizer, device):
 
 
 def test_llr_insertions(model, tokenizer, device):
-    # Test Missense
+    # Test Insertions
     gene = "MSH6"
     transcript = "ENST00000234420.11"
     fasta_file = os.path.join(FASTA_DIR, f"{gene}_{transcript}.fasta")
@@ -174,7 +173,7 @@ def test_llr_insertions(model, tokenizer, device):
 
 
 def test_llr_delins(model, tokenizer, device):
-    # Test Missense
+    # Test Delins
     gene = "MSH6"
     transcript = "ENST00000540021.6"
     fasta_file = os.path.join(FASTA_DIR, f"{gene}_{transcript}.fasta")
@@ -265,7 +264,6 @@ def test_deletion(model, tokenizer, device):
     print(f"Protein Sequence:\n{protein_seq}\n")
 
     # Define the mutation: deletion at position 173 (HGVS: p.M173del)
-    # (Positions are 1-indexed.)
     position = 173
     # For a deletion, remove the amino acid at the specified position.
     mut_seq = protein_seq[: position - 1] + protein_seq[position:]
@@ -298,7 +296,7 @@ def test_deletion(model, tokenizer, device):
     wt_window = wt_local_pll[start_idx:end_idx]
     mut_window = aligned_mut_pll[start_idx:end_idx]
 
-    fig, ax = plt.subplots(figsize=(10, 6))
+    _, ax = plt.subplots(figsize=(10, 6))
     width = 0.35
 
     ax.bar(
