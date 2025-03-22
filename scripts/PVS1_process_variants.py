@@ -1,6 +1,5 @@
 import os
 import pandas as pd
-import torch
 import numpy as np
 from tqdm import tqdm
 from esm_variants_utils import (
@@ -295,7 +294,7 @@ def test_deletion(model, tokenizer, device):
     start_idx = max(0, position - window - 1)
     end_idx = min(len(wt_local_pll), position + window)
 
-    x_positions = np.arange(start_idx + 1, end_idx + 1)  # 1-indexed for plotting
+    x_positions = np.arange(start_idx + 1, end_idx + 1)
     wt_window = wt_local_pll[start_idx:end_idx]
     mut_window = aligned_mut_pll[start_idx:end_idx]
 
@@ -361,7 +360,7 @@ if __name__ == "__main__":
     print(f"Current directory: {os.getcwd()}")
     # Load ESM Model
     model, tokenizer, device = load_model("facebook/esm2_t6_8M_UR50D")
-    test_llr_delins(model, tokenizer, device)
+    # test_llr_delins(model, tokenizer, device)
     # test_deletion(model, tokenizer, device)
     # test_llr_missense(model, tokenizer, device)
-    # run_llr_predictions(model, tokenizer, device)
+    run_llr_predictions(model, tokenizer, device)

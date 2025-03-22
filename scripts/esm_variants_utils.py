@@ -166,12 +166,12 @@ def get_wt_LLR(input_df, model, tokenizer, device="cuda", silent=False):
         sequence = row["seq"]
         seq_length = len(sequence)
 
-        # ✅ Ensure the sequence length matches the model's output
+        # Ensure the sequence length matches the model's output
         if seq_length > 1022:
             print(f"Warning: {gname} sequence is too long ({seq_length}). Truncating!")
-            sequence = sequence[:1022]  # ✅ Truncate to max ESM2 sequence length
+            sequence = sequence[:1022]  # Truncate to max ESM2 sequence length
 
-        # ✅ Tokenization with attention_mask
+        # Tokenization with attention_mask
         batch_tokens = tokenizer(
             sequence,
             return_tensors="pt",
@@ -180,7 +180,7 @@ def get_wt_LLR(input_df, model, tokenizer, device="cuda", silent=False):
             max_length=1022,
         )
         batch_tokens = {k: v.to(device) for k, v in batch_tokens.items()}
-        # ✅ Run ESM model
+        # Run ESM model
         with torch.no_grad():
             results_ = (
                 torch.log_softmax(
@@ -194,22 +194,22 @@ def get_wt_LLR(input_df, model, tokenizer, device="cuda", silent=False):
                 .numpy()
             )
 
-        # ✅ Adjust the sequence length to match logits
+        # Adjust the sequence length to match logits
         actual_seq_length = min(
             seq_length, results_.shape[1] - 2
-        )  # ✅ Adjust for special tokens
-        logit_data = results_[0, 1 : actual_seq_length + 1, :]  # ✅ Extract valid range
+        )  # Adjust for special tokens
+        logit_data = results_[0, 1 : actual_seq_length + 1, :]  # Extract valid range
 
-        # ✅ Extract WT log probabilities
+        # Extract WT log probabilities
         WTlogits = pd.DataFrame(
             logit_data,
             columns=tokenizer.get_vocab().keys(),
-            index=list(sequence[:actual_seq_length]),  # ✅ Ensure correct index length
+            index=list(sequence[:actual_seq_length]),  # Ensure correct index length
         ).T.loc[AAorder]
 
         WTlogits.columns = [f"{aa} {i+1}" for i, aa in enumerate(WTlogits.columns)]
 
-        # ✅ Compute LLR
+        # Compute LLR
         wt_norm = np.diag(WTlogits.loc[[aa.split(" ")[0] for aa in WTlogits.columns]])
         LLR = WTlogits - wt_norm
 
@@ -237,7 +237,7 @@ def get_logits(seq, model, tokenizer, format=None, device=0):
         # Create a DataFrame with log-probabilities for each amino acid
         WTlogits = pd.DataFrame(
             logits,
-            columns=tokenizer.get_vocab().keys(),  # ✅ Fix: Use Hugging Face tokenizer vocabulary
+            columns=tokenizer.get_vocab().keys(),
             index=list(seq),
         ).T.loc[
             AAorder
@@ -287,7 +287,7 @@ def get_start_loss_LLR(seq, model, tokenizer, device):
     - If the start codon is lost, look at downstream methionines (alternative starts).
     - Compute LLR at M1 and compare with alternative start sites.
     """
-    # ✅ Compute Wild-Type LLR for the sequence
+    # Compute Wild-Type LLR for the sequence
     seq_df = pd.DataFrame(
         [("_", "_", seq, len(seq))], columns=["id", "gene", "seq", "length"]
     )
@@ -300,7 +300,7 @@ def get_start_loss_LLR(seq, model, tokenizer, device):
 
     llr_matrix = LLRs[0]  # Extract LLR matrix
 
-    # ✅ Compute LLR at position 1 (Start Codon)
+    # Compute LLR at position 1 (Start Codon)
     try:
         start_loss_llr = llr_matrix.loc[
             "M", "M 1"
@@ -309,7 +309,7 @@ def get_start_loss_LLR(seq, model, tokenizer, device):
         print("Warning: M1 not found in LLR matrix. Check tokenization.")
         return "N/A"
 
-    # ✅ Find alternative start sites (Methionines)
+    # Find alternative start sites (Methionines)
     alternative_sites = [col for col in llr_matrix.columns if col.startswith("M ")]
     alternative_llrs = [
         llr_matrix.loc["M", col]
@@ -317,13 +317,14 @@ def get_start_loss_LLR(seq, model, tokenizer, device):
         if int(col.split(" ")[1]) > 1
     ]
 
-    # ✅ If alternative start sites exist, return the lowest LLR
+    # If alternative start sites exist, return the lowest LLR
     if alternative_llrs:
         return min(
             start_loss_llr, min(alternative_llrs)
         )  # Use the most likely alternative start
 
     return start_loss_llr  # If no alternative, return M1 LLR
+
 
 def compute_delins_llr(model, tokenizer, wt_seq, mut_seq, position, alt_aa, device):
     """
@@ -340,7 +341,9 @@ def compute_delins_llr(model, tokenizer, wt_seq, mut_seq, position, alt_aa, devi
     # Compute log probabilities for WT and Mutant sequences
     with torch.no_grad():
         wt_logits = torch.log_softmax(model(wt_tokens)["logits"], dim=-1).cpu().numpy()
-        mut_logits = torch.log_softmax(model(mut_tokens)["logits"], dim=-1).cpu().numpy()
+        mut_logits = (
+            torch.log_softmax(model(mut_tokens)["logits"], dim=-1).cpu().numpy()
+        )
 
     # Extract log-likelihoods at the mutation position
     wt_ll = wt_logits[0, position, :]
@@ -353,7 +356,6 @@ def compute_delins_llr(model, tokenizer, wt_seq, mut_seq, position, alt_aa, devi
     llr = mut_ll[target_token_id] - wt_ll[target_token_id]
 
     return llr
-
 
 
 def get_local_PLL(seq, model, tokenizer, device=0):
@@ -480,22 +482,22 @@ def crop_indel(ref_seq, alt_seq, ref_start):
     max_len = 1022  # Maximum length allowed by ESM model
     left_pos = ref_start - 1  # Convert 1-based index to 0-based
 
-    # ✅ If sequence is already short enough, return unchanged
+    # If sequence is already short enough, return unchanged
     if len(ref_seq) <= max_len and len(alt_seq) <= max_len:
         return ref_seq, alt_seq, ref_start  # Keep mutation position unchanged
 
-    # ✅ Center the mutation in the cropped sequence
+    # Center the mutation in the cropped sequence
     start_pos = max(0, left_pos - max_len // 2)
     end_pos1 = min(start_pos + max_len, len(ref_seq))  # Crop for WT
     end_pos2 = min(start_pos + max_len, len(alt_seq))  # Crop for Mutant
 
-    # ✅ Adjust cropping to ensure mutation remains visible
+    # Adjust cropping to ensure mutation remains visible
     if left_pos < start_pos:
         start_pos = max(0, left_pos - 50)  # Shift left to keep mutation
         end_pos1 = min(start_pos + max_len, len(ref_seq))
         end_pos2 = min(start_pos + max_len, len(alt_seq))
 
-    adj_pos = ref_start - start_pos  # ✅ Fix mutation position adjustment
+    adj_pos = ref_start - start_pos  # Fix mutation position adjustment
 
     return ref_seq[start_pos:end_pos1], alt_seq[start_pos:end_pos2], adj_pos
 
