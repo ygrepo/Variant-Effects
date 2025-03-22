@@ -101,6 +101,7 @@ def run_llr_predictions(model, tokenizer, device):
             llr = get_minLLR(protein_seq, position, model, tokenizer, device)
         elif mutation_type == "Start Loss":
             llr = get_start_loss_LLR(protein_seq, model, tokenizer, device)
+        # Example of handling the mutation type elsewhere in your code:
         elif mutation_type == "Delins":
             # Ensure the mutation is properly formatted
             if alt_aa == "X":
@@ -123,15 +124,14 @@ def run_llr_predictions(model, tokenizer, device):
                         protein_seq[: position - 1] + alt_aa + protein_seq[position:]
                     )
                     llr = compute_delins_llr(
-                        model, tokenizer, protein_seq, mut_seq, position, device
+                        model, tokenizer, protein_seq, mut_seq, position, alt_aa, device
                     )
             else:
                 # Normal Delins processing
                 mut_seq = protein_seq[: position - 1] + alt_aa + protein_seq[position:]
                 llr = compute_delins_llr(
-                    model, tokenizer, protein_seq, mut_seq, position, device
+                    model, tokenizer, protein_seq, mut_seq, position, alt_aa, device
                 )
-
         elif mutation_type == "Frameshift":
             print(f"Frameshift for {gene} {transcript} {mutation_type} at {position}")
             llr = "N/A"
@@ -172,6 +172,24 @@ def test_llr_insertions(model, tokenizer, device):
     print(f"Mut. Protein Seq.: {mut_seq}\n")
     llr = compute_pllr(model, tokenizer, protein_seq, mut_seq, position, device)
     print(f"PLLR (Insertion): {llr}\n")
+
+
+def test_llr_delins(model, tokenizer, device):
+    # Test Missense
+    gene = "MSH6"
+    transcript = "ENST00000540021.6"
+    fasta_file = os.path.join(FASTA_DIR, f"{gene}_{transcript}.fasta")
+    with open(fasta_file, "r") as f:
+        protein_seq = "".join(line.strip() for line in f if not line.startswith(">"))
+    print(f"Protein Seq.: {protein_seq}\n")
+    position = 10
+    alt_aa = "X"
+    mut_seq = protein_seq[: position - 1] + alt_aa + protein_seq[position:]
+    print(f"Mut. Protein Seq.: {mut_seq}\n")
+    llr = compute_delins_llr(
+        model, tokenizer, protein_seq, mut_seq, position, alt_aa, device
+    )
+    print(f"PLLR (DelInsertion): {llr}\n")
 
 
 def test_llr_missense(model, tokenizer, device):
@@ -343,6 +361,7 @@ if __name__ == "__main__":
     print(f"Current directory: {os.getcwd()}")
     # Load ESM Model
     model, tokenizer, device = load_model("facebook/esm2_t6_8M_UR50D")
+    test_llr_delins(model, tokenizer, device)
     # test_deletion(model, tokenizer, device)
     # test_llr_missense(model, tokenizer, device)
-    run_llr_predictions(model, tokenizer, device)
+    # run_llr_predictions(model, tokenizer, device)

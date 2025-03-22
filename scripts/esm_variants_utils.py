@@ -325,10 +325,10 @@ def get_start_loss_LLR(seq, model, tokenizer, device):
 
     return start_loss_llr  # If no alternative, return M1 LLR
 
-
-def compute_delins_llr(model, tokenizer, wt_seq, mut_seq, position, device):
+def compute_delins_llr(model, tokenizer, wt_seq, mut_seq, position, alt_aa, device):
     """
     Compute the Log-Likelihood Ratio (LLR) for a Delins mutation using Hugging Face's ESM model.
+    Instead of summing over all tokens, this compares the log-probability for the target residue (alt_aa).
     """
     # Tokenize both the wild-type (WT) and mutant sequences
     wt_tokens = tokenizer(wt_seq, return_tensors="pt", padding=True, truncation=True)
@@ -340,18 +340,20 @@ def compute_delins_llr(model, tokenizer, wt_seq, mut_seq, position, device):
     # Compute log probabilities for WT and Mutant sequences
     with torch.no_grad():
         wt_logits = torch.log_softmax(model(wt_tokens)["logits"], dim=-1).cpu().numpy()
-        mut_logits = (
-            torch.log_softmax(model(mut_tokens)["logits"], dim=-1).cpu().numpy()
-        )
+        mut_logits = torch.log_softmax(model(mut_tokens)["logits"], dim=-1).cpu().numpy()
 
     # Extract log-likelihoods at the mutation position
     wt_ll = wt_logits[0, position, :]
     mut_ll = mut_logits[0, position, :]
 
-    # Compute LLR
-    llr = np.sum(mut_ll - wt_ll)
+    # Obtain the token id for the target residue (alt_aa)
+    target_token_id = tokenizer.encode(alt_aa, add_special_tokens=False)[0]
+
+    # Compute the LLR for the target residue at the mutation position
+    llr = mut_ll[target_token_id] - wt_ll[target_token_id]
 
     return llr
+
 
 
 def get_local_PLL(seq, model, tokenizer, device=0):
