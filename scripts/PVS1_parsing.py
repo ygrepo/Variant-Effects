@@ -281,7 +281,7 @@ if __name__ == "__main__":
     # print(parse_hgvsp("p.R104X"))  # Nonsense Mutation (Stop Gain)
     # print(parse_hgvsp("p.Y97C"))  # Missense Mutation
     # print(parse_hgvsp("p.A100Dfs*5"))  # Frameshift Mutation
-    # print(parse_hgvsp("p.W50_S51insG"))  # Insertion
+    print(parse_hgvsp("p.W50_S51insG"))  # Insertion
     # print(parse_hgvsp("p.A123del"))  # Deletion
     # print(parse_hgvsp("p.X1231delinsX"))  # Delins
 

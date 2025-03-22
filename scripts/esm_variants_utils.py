@@ -262,9 +262,7 @@ def get_PLL(seq, model, tokenizer, reduce=np.sum, device=0):
         tokenizer=tokenizer,
         device=device,
     )
-    idx = tokenizer.encode(
-        seq, add_special_tokens=False
-    )  # ✅ Fix: Replace `alphabet.tok_to_idx[]`
+    idx = tokenizer.encode(seq, add_special_tokens=False)
     return reduce(np.diag(s[:, idx]))
 
 
@@ -354,6 +352,25 @@ def compute_delins_llr(model, tokenizer, wt_seq, mut_seq, position, device):
     llr = np.sum(mut_ll - wt_ll)
 
     return llr
+
+
+def get_local_PLL(seq, model, tokenizer, device=0):
+    """
+    Compute local PLL values for each position in the sequence.
+    This function obtains the logits from the model, then extracts the PLL value
+    (the log-likelihood of the actual residue) for each position.
+
+    Assumes get_logits returns a 2D numpy array of shape (L, vocab_size),
+    where L is the sequence length.
+    """
+    # Get logits from the model for the entire sequence.
+    s = get_logits(seq, model=model, tokenizer=tokenizer, device=device)
+    # Encode the sequence (without special tokens) to obtain token indices.
+    idx = tokenizer.encode(seq, add_special_tokens=False)
+    # Extract the PLL for each position as the logit corresponding to the actual residue.
+    # (This assumes that a higher logit corresponds to a higher likelihood.)
+    local_pll = np.array([s[i, idx[i]] for i in range(len(idx))])
+    return local_pll
 
 
 ##################### TILING utils ###########################
@@ -479,38 +496,6 @@ def crop_indel(ref_seq, alt_seq, ref_start):
     adj_pos = ref_start - start_pos  # ✅ Fix mutation position adjustment
 
     return ref_seq[start_pos:end_pos1], alt_seq[start_pos:end_pos2], adj_pos
-
-
-# def crop_indel(ref_seq, alt_seq, ref_start):
-#     max_len = 1022  # Maximum length allowed by ESM model
-#     # Start pos: 1-indexed start position of variant
-#     left_pos = ref_start - 1
-#     offset = len(ref_seq) - len(alt_seq)
-#     # ✅ If sequence is already short enough, no cropping needed
-#     if len(ref_seq) <= max_len and len(alt_seq) <= max_len:
-#         return ref_seq, alt_seq, ref_start  # Keep mutation position unchanged
-
-#     start_pos = int(left_pos - 1022 / 2)
-#     end_pos1 = int(left_pos + 1022 / 2) - min(start_pos, 0) + min(offset, 0)
-#     end_pos2 = int(left_pos + 1022 / 2) - min(start_pos, 0) - max(offset, 0)
-#     if start_pos < 0:
-#         start_pos = 0  # Make sure the start position is not negative
-#     if end_pos1 > len(ref_seq):
-#         end_pos1 = len(
-#             ref_seq
-#         )  # Make sure the end positions are not beyond the end of the sequence
-#     if end_pos2 > len(alt_seq):
-#         end_pos2 = len(alt_seq)
-#     if (
-#         start_pos > 0 and max(end_pos2, end_pos1) - start_pos < 1022
-#     ):  ## extend to the left if there's space
-#         start_pos = max(0, max(end_pos2, end_pos1) - 1022)
-
-#     return (
-#         ref_seq[start_pos:end_pos1],
-#         alt_seq[start_pos:end_pos2],
-#         start_pos - ref_start,
-#     )
 
 
 ## stop gain variant score
