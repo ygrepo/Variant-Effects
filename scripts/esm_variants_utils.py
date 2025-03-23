@@ -76,15 +76,7 @@ def load_model(model_name, load_flag=True):
             return model, tokenizer, device
         else:
             # 2) Load from local pickle
-            base_dir = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
-            pickle_dir = os.path.join(base_dir, "pickle")
-            model_path = os.path.join(
-                pickle_dir, model_name.replace("/", "_") + "_model"
-            )
-            tokenizer_path = os.path.join(
-                pickle_dir, model_name.replace("/", "_") + "_tokenizer"
-            )
-
+            model_path, tokenizer_path = load_model_paths(model_name)
             print(f"Loading EVO model from {model_path}")
             model = AutoModelForCausalLM.from_pretrained(model_path)
             model.to(device)
@@ -105,6 +97,7 @@ def load_model(model_name, load_flag=True):
             return model, tokenizer, device
         else:
             # 2) Load from local pickle
+            model_path, tokenizer_path = load_model_paths(model_name)
             base_dir = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
             pickle_dir = os.path.join(base_dir, "pickle")
             model_path = os.path.join(
@@ -125,6 +118,16 @@ def load_model(model_name, load_flag=True):
 
     else:
         raise ValueError(f"Unsupported model name: {model_name}")
+
+
+def load_model_paths(model_name):
+    base_dir = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
+    pickle_dir = os.path.join(base_dir, "pickle")
+    model_path = os.path.join(pickle_dir, model_name.replace("/", "_") + "_model")
+    tokenizer_path = os.path.join(
+        pickle_dir, model_name.replace("/", "_") + "_tokenizer"
+    )
+    return model_path, tokenizer_path
 
 
 def get_wt_LLR(input_df, model, tokenizer, device="cuda", silent=False):

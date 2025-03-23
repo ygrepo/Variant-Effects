@@ -1,0 +1,44 @@
+{
+    "[python]": {
+        "editor.formatOnType": true,
+        "editor.defaultFormatter": "ms-python.black-formatter"        
+    },
+    "python.linting.mypyArgs": ["--no-daemon"],
+    "diffEditor.ignoreTrimWhitespace": false,
+    "editor.guides.bracketPairs": true,
+    "editor.rulers": [
+        88
+    ],
+    "editor.wordWrap": "on",
+    "files.associations": {
+        "CODEOWNERS": "ssh_config"
+    },
+    "files.insertFinalNewline": true,
+    "files.trimTrailingWhitespace": true,
+    "github.copilot.editor.enableAutoCompletions": true,
+    "github.copilot.enable": {
+        "*": true,
+        "plaintext": false,
+        "markdown": false,
+        "scminput": false
+    },
+    "html.format.wrapLineLength": 88,
+    "notebook.output.textLineLimit": 100,
+    "python.analysis.diagnosticSeverityOverrides": {
+        "reportUndefinedVariable": "none"
+    },
+    "python.analysis.typeCheckingMode": "standard",
+    "python.interpreter.infoVisibility": "always",
+    "redhat.telemetry.enabled": false,
+    "remote.autoForwardPortsSource": "hybrid",
+    "remote.SSH.connectTimeout": 60,
+    "remote.SSH.enableRemoteCommand": true,
+    "remote.SSH.localServerDownload": "always",
+    "remote.SSH.remoteServerListenOnSocket": true,
+    "terminal.integrated.defaultProfile.osx": "bash",
+    "terminal.integrated.fontFamily": "MesloLGS NF",
+    "vsicons.dontShowNewVersionMessage": true,
+    "workbench.colorTheme": "GitHub Dark",
+    "workbench.editor.enablePreview": false,
+    "workbench.iconTheme": "vscode-icons"
+}
