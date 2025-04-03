@@ -86,6 +86,28 @@ def load_model(model_name, load_flag=True):
             tokenizer = AutoTokenizer.from_pretrained(tokenizer_path)
             return model, tokenizer, device
 
+    elif model_name == "facebook/esm1b_t33_650M_UR50S":
+        if not load_flag:
+            # Load ESM-1b model from torch.hub
+            model, alphabet = torch.hub.load(
+                "facebookresearch/esm", "esm1b_t33_650M_UR50S"
+            )
+            model.eval().to(device)
+
+            # Save to local cache
+            model_path, _ = load_model_paths(model_name)  # tokenizer not used
+            os.makedirs(os.path.dirname(model_path), exist_ok=True)
+            print(f"Saving ESM-1b model to {model_path}")
+            torch.save((model, alphabet), model_path)
+
+            return model, alphabet, device
+        else:
+            # Load ESM-1b model from local cache
+            model_path, _ = load_model_paths(model_name)  # tokenizer not used
+            print(f"Loading ESM-1b model from {model_path}")
+            model, alphabet = torch.load(model_path, map_location=device)
+            return model.eval().to(device), alphabet, device
+
     elif model_name == "facebook/esm2_t6_8M_UR50D":
         # Load ESM-2 model
         # ========= ESM: Masked LM =========
@@ -222,50 +244,98 @@ def get_wt_LLR(input_df, model, tokenizer, device="cuda", silent=False):
     return input_df_ids, LLRs
 
 
-def get_logits(seq, model, tokenizer, format=None, device=0):
+def get_logits(seq, model_type, model, tokenizer_or_alphabet, format=None, device=0):
     """
-    Compute log-probabilities (logits) for a given sequence using Hugging Face's ESM model.
+    Compute log-probabilities (logits) for a given sequence using either Hugging Face's ESM (ESM-2)
+    or Facebook's ESM-1b model.
+
+    Parameters:
+        model_type: "esm2" (HuggingFace/ESM2) or "esm1" (Facebook ESM-1b)
+        seq: protein sequence string
+        model: loaded model
+        tokenizer_or_alphabet: HuggingFace tokenizer or ESM alphabet
+        format: if "pandas", returns a nicely formatted DataFrame
+        device: torch.device or device index
     """
-    # Tokenize input sequence
-    tokens = tokenizer(seq, return_tensors="pt", add_special_tokens=True).to(device)
+    # device = torch.device(device)
+    # device = torch.device(device or ("cuda" if torch.cuda.is_available() else "cpu"))
 
-    # Get log probabilities from model
-    with torch.no_grad():
-        logits = torch.log_softmax(model(**tokens).logits, dim=-1).cpu().numpy()
+    if model_type == "esm1":
+        # Tokenize using ESM1's alphabet and batch_converter
+        batch_converter = tokenizer_or_alphabet.get_batch_converter()
+        data = [("sequence", seq)]
+        _, _, batch_tokens = batch_converter(data)
+        batch_tokens = batch_tokens.to(device)
 
-    # Remove special tokens from logits (first & last)
-    logits = logits[0, 1:-1, :]
+        with torch.no_grad():
+            logits_tensor = model(batch_tokens, repr_layers=[], return_contacts=False)[
+                "logits"
+            ]
+            logits = torch.log_softmax(logits_tensor, dim=-1).cpu().numpy()
+
+        # Remove special tokens (<cls>, <eos>)
+        logits = logits[0, 1:-1, :]  # Drop CLS and EOS
+        aa_sequence = list(seq)
+
+    elif model_type == "esm2":
+        # Tokenize with Hugging Face
+        tokens = tokenizer_or_alphabet(
+            seq, return_tensors="pt", add_special_tokens=True
+        ).to(device)
+
+        with torch.no_grad():
+            logits = torch.log_softmax(model(**tokens).logits, dim=-1).cpu().numpy()
+
+        # Remove special tokens (CLS and EOS)
+        logits = logits[0, 1:-1, :]
+
+        aa_sequence = list(seq)
+
+    else:
+        raise ValueError(f"Unsupported model_type: {model_type}")
 
     if format == "pandas":
-        # Create a DataFrame with log-probabilities for each amino acid
-        WTlogits = pd.DataFrame(
-            logits,
-            columns=tokenizer.get_vocab().keys(),
-            index=list(seq),
+
+        if model_type == "esm2":
+            vocab = tokenizer_or_alphabet.get_vocab()
+            id_to_token = {v: k for k, v in vocab.items()}
+        else:  # esm1
+            id_to_token = {
+                i: tok for tok, i in tokenizer_or_alphabet.tok_to_idx.items()
+            }
+
+        aa_vocab = [aa for aa in "ACDEFGHIKLMNPQRSTVWY"]
+        vocab_indices = [id_to_token[i] for i in range(logits.shape[-1])]
+
+        df = pd.DataFrame(
+            logits, columns=vocab_indices, index=range(len(aa_sequence))
         ).T.loc[
-            AAorder
-        ]  # Select only standard amino acids
+            aa_vocab
+        ]  # Only keep standard AAs
 
-        # Rename columns to include residue position
-        WTlogits.columns = [
-            j.split(".")[0] + " " + str(i + 1) for i, j in enumerate(WTlogits.columns)
-        ]
-        return WTlogits
-    else:
-        return logits  # Return raw logits matrix
+        df.columns = [f"{res} {i+1}" for i, res in enumerate(aa_sequence)]
+        return df
+
+    return logits
 
 
-def get_PLL(seq, model, tokenizer, reduce=np.sum, device=0):
+def get_PLL(seq, model_type, model, tokenizer_or_alphabet, reduce=np.sum, device=None):
     """
     Compute the Protein Log-Likelihood (PLL) for a given sequence.
     """
-    s = get_logits(
-        seq,
-        model=model,
-        tokenizer=tokenizer,
-        device=device,
-    )
-    idx = tokenizer.encode(seq, add_special_tokens=False)
+
+    # Get log-probabilities
+    s = get_logits(seq, model_type, model, tokenizer_or_alphabet, None, device)
+
+    # Get token indices for ground truth amino acids
+    if model_type == "esm1":
+        idx = [tokenizer_or_alphabet.tok_to_idx[aa] for aa in seq]
+    elif model_type == "esm2":
+        idx = tokenizer_or_alphabet.encode(seq, add_special_tokens=False)
+        # Get token indices manually using the ESM1 alphabet
+    else:
+        raise ValueError("Unsupported model type")
+
     return reduce(np.diag(s[:, idx]))
 
 
@@ -329,52 +399,115 @@ def get_start_loss_LLR(seq, model, tokenizer, device):
     return start_loss_llr  # If no alternative, return M1 LLR
 
 
-def compute_delins_llr(model, tokenizer, wt_seq, mut_seq, position, alt_aa, device):
+def compute_delins_llr(
+    model_type,
+    model,
+    tokenizer_or_alphabet,
+    wt_seq,
+    mut_seq,
+    position,
+    alt_aa,
+    device,
+):
     """
-    Compute the Log-Likelihood Ratio (LLR) for a Delins mutation using Hugging Face's ESM model.
-    Instead of summing over all tokens, this compares the log-probability for the target residue (alt_aa).
+    Compute the Log-Likelihood Ratio (LLR) for a Delins mutation.
+
+    Parameters:
+        model_type:  "esm1" (Facebook ESM-1b) or "esm2" (Hugging Face)
+        model: ESM model (Hugging Face or ESM1)
+        tokenizer_or_alphabet: either HuggingFace tokenizer or ESM1 Alphabet
+        wt_seq: wild-type sequence (string)
+        mut_seq: mutant sequence (string)
+        position: 0-based index (residue position)
+        alt_aa: mutated residue (e.g. 'V')
+        device: torch.device
     """
-    # Tokenize both the wild-type (WT) and mutant sequences
-    wt_tokens = tokenizer(wt_seq, return_tensors="pt", padding=True, truncation=True)
-    mut_tokens = tokenizer(mut_seq, return_tensors="pt", padding=True, truncation=True)
-
-    wt_tokens = wt_tokens["input_ids"].to(device)
-    mut_tokens = mut_tokens["input_ids"].to(device)
-
-    # Compute log probabilities for WT and Mutant sequences
-    with torch.no_grad():
-        wt_logits = torch.log_softmax(model(wt_tokens)["logits"], dim=-1).cpu().numpy()
-        mut_logits = (
-            torch.log_softmax(model(mut_tokens)["logits"], dim=-1).cpu().numpy()
+    if model_type == "esm2":
+        # Tokenize both sequences
+        wt_tokens = tokenizer_or_alphabet(
+            wt_seq, return_tensors="pt", padding=True, truncation=True
+        )
+        mut_tokens = tokenizer_or_alphabet(
+            mut_seq, return_tensors="pt", padding=True, truncation=True
         )
 
-    # Extract log-likelihoods at the mutation position
-    wt_ll = wt_logits[0, position, :]
-    mut_ll = mut_logits[0, position, :]
+        wt_tokens = wt_tokens["input_ids"].to(device)
+        mut_tokens = mut_tokens["input_ids"].to(device)
 
-    # Obtain the token id for the target residue (alt_aa)
-    target_token_id = tokenizer.encode(alt_aa, add_special_tokens=False)[0]
+        with torch.no_grad():
+            wt_logits = (
+                torch.log_softmax(model(wt_tokens)["logits"], dim=-1).cpu().numpy()
+            )
+            mut_logits = (
+                torch.log_softmax(model(mut_tokens)["logits"], dim=-1).cpu().numpy()
+            )
 
-    # Compute the LLR for the target residue at the mutation position
+        # Token position is 0-based directly
+        wt_ll = wt_logits[0, position, :]
+        mut_ll = mut_logits[0, position, :]
+
+        target_token_id = tokenizer_or_alphabet.encode(
+            alt_aa, add_special_tokens=False
+        )[0]
+    elif model_type == "esm1":
+        # First truncate sequence (if needed) to avoid ESM1's 1024-token limit
+        wt_seq, mut_seq, position = center_truncate(wt_seq, mut_seq, position)
+
+        # Tokenize using ESM1's batch converter
+        batch_converter = tokenizer_or_alphabet.get_batch_converter()
+        data = [("WT", wt_seq), ("MUT", mut_seq)]
+        _, _, batch_tokens = batch_converter(data)
+        batch_tokens = batch_tokens.to(device)
+
+        with torch.no_grad():
+            logits = model(batch_tokens, repr_layers=[], return_contacts=False)[
+                "logits"
+            ]
+            log_probs = torch.log_softmax(logits, dim=-1).cpu().numpy()
+
+        # Adjust for <cls> token at index 0
+        wt_ll = log_probs[0, position + 1, :]
+        mut_ll = log_probs[1, position + 1, :]
+
+        target_token_id = tokenizer_or_alphabet.tok_to_idx[alt_aa]
+
+    else:
+        raise ValueError(f"Unsupported model_type: {model_type}")
+
+    # Compute log-likelihood ratio
     llr = mut_ll[target_token_id] - wt_ll[target_token_id]
 
     return llr
 
 
-def get_local_PLL(seq, model, tokenizer, device=0):
+def get_local_PLL(seq, model_type, model, tokenizer, device=0):
     """
     Compute local PLL values for each position in the sequence.
     This function obtains the logits from the model, then extracts the PLL value
     (the log-likelihood of the actual residue) for each position.
     """
     # Get logits from the model for the entire sequence.
-    s = get_logits(seq, model=model, tokenizer=tokenizer, device=device)
+    s = get_logits(
+        seq, model_type, model=model, tokenizer=tokenizer, format=None, device=device
+    )
     # Encode the sequence (without special tokens) to obtain token indices.
     idx = tokenizer.encode(seq, add_special_tokens=False)
     # Extract the PLL for each position as the logit corresponding to the actual residue.
     # (This assumes that a higher logit corresponds to a higher likelihood.)
     local_pll = np.array([s[i, idx[i]] for i in range(len(idx))])
     return local_pll
+
+
+def center_truncate(wt_seq, mut_seq, position, max_len=1022):
+    half = max_len // 2
+    start = max(0, position - half)
+    end = min(len(wt_seq), position + half)
+
+    new_wt = wt_seq[start:end]
+    new_mut = mut_seq[start:end]
+    new_pos = position - start
+
+    return new_wt, new_mut, new_pos
 
 
 ##################### TILING utils ###########################
@@ -437,6 +570,7 @@ def get_PLLR(
     wt_seq,
     mut_seq,
     start_pos,
+    model_type,
     model,
     tokenizer,  # Replace alphabet with tokenizer
     weighted=False,
@@ -450,31 +584,35 @@ def get_PLLR(
     if max(len(wt_seq), len(mut_seq)) <= 1022:
         return get_PLL(
             mut_seq,
-            model=model,
-            tokenizer=tokenizer,  # Pass tokenizer to the function
+            model_type,
+            model,
+            tokenizer,  # Pass tokenizer to the function
             reduce=fn,
             device=device,
         ) - get_PLL(
             wt_seq,
-            model=model,
-            tokenizer=tokenizer,  # Pass tokenizer to the function
-            reduce=fn,
-            device=device,
+            model_type,
+            model,
+            tokenizer,  # Pass tokenizer to the function
+            fn,
+            device,
         )
     else:
         wt_seq, mut_seq, start_pos = crop_indel(wt_seq, mut_seq, start_pos)
         return get_PLL(
             mut_seq,
-            model=model,
-            tokenizer=tokenizer,
-            reduce=fn,
-            device=device,
+            model_type,
+            model,
+            tokenizer,
+            fn,
+            device,
         ) - get_PLL(
             wt_seq,
-            model=model,
-            tokenizer=tokenizer,
-            reduce=fn,
-            device=device,
+            model_type,
+            model,
+            tokenizer,
+            fn,
+            device,
         )
 
 
@@ -543,49 +681,51 @@ def get_minLLR(seq, stop_pos, model, tokenizer, device=0):
 # ############### EXAMPLE ##################
 if __name__ == "__main__":
     # ## Load model
-    model, tokenizer, device = load_model("facebook/esm2_t6_8M_UR50D")
+    model_name = "facebook/esm1b_t33_650M_UR50S"
+    model, tokenizer, device = load_model(model_name=model_name, load_flag=False)
+    print(f"Model: {model_name} loaded successfully!")
     # model,alphabet,batch_converter,repr_layer = load_esm_model(model_name='esm1b_t33_650M_UR50S',device='cuda')
     ## Create a toy dataset
-    df_in = pd.DataFrame(
-        [
-            ("P1", "gene1", "FISHWISHFQRCHIPSTHATARECRISP", 28),
-            ("P2", "gene2", "RAGEAGAINSTTHEMACHINE", 21),
-            ("P3", "gene3", "SHIPSSAILASFISHSWIM", 19),
-            ("P4", "gene4", "A" * 1948, 1948),
-        ],
-        columns=["id", "gene", "seq", "length"],
-    )
-    ## Get LLRs
-    ids, LLRs = get_wt_LLR(
-        df_in, model=model, tokenizer=tokenizer, device=device, silent=False
-    )
-    for i, LLR in zip(ids, LLRs):
-        print(i, LLR.shape)
-    sequence = "MADEEKLPPGWEKRMSRSSGRVYYFNHITNASQWERPSGNAV"
-    logits = get_logits(sequence, model, tokenizer, format="pandas", device="cpu")
-    print(logits)
+    # df_in = pd.DataFrame(
+    #     [
+    #         ("P1", "gene1", "FISHWISHFQRCHIPSTHATARECRISP", 28),
+    #         ("P2", "gene2", "RAGEAGAINSTTHEMACHINE", 21),
+    #         ("P3", "gene3", "SHIPSSAILASFISHSWIM", 19),
+    #         ("P4", "gene4", "A" * 1948, 1948),
+    #     ],
+    #     columns=["id", "gene", "seq", "length"],
+    # )
+    # ## Get LLRs
+    # ids, LLRs = get_wt_LLR(
+    #     df_in, model=model, tokenizer=tokenizer, device=device, silent=False
+    # )
+    # for i, LLR in zip(ids, LLRs):
+    #     print(i, LLR.shape)
+    # sequence = "MADEEKLPPGWEKRMSRSSGRVYYFNHITNASQWERPSGNAV"
+    # logits = get_logits(sequence, model, tokenizer, format="pandas", device="cpu")
+    # print(logits)
 
-    ## Get PLL
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-    print(get_PLL(df_in.seq.values[0], model, tokenizer, device=device))
-    # indel: 14_IPS_delins_EESE (FISHWISHFQRCHIPSTHATARECRISP --> FISHWISHFQRCHEESETHATARECRISP)
-    print(
-        get_PLLR(
-            "FISHWISHFQRCHIPSTHATARECRISP",
-            "FISHWISHFQRCHEESETHATARECRISP",
-            14,
-            model,
-            tokenizer,  # Replace alphabet with tokenizer
-            weighted=False,
-            device=device,
-        )
-    )
-    ## stop at position 17
-    print(get_minLLR(df_in.seq.values[0], 17, model, tokenizer, device=device))
-    ref_seq = "MKVLWAALLVTFLAGCQAKVE"  # 21 amino acids (WT)
-    alt_seq = "MKVLWAALLVTFLAGCQAKVEE"  # 22 amino acids (Mutant with insertion)
-    ref_start = 10  # Indel at position 10
-    ref_cropped, alt_cropped, adj_pos = crop_indel(ref_seq, alt_seq, ref_start)
-    print(ref_cropped)  # "MKVLWAALLVTF" (1022-length)
-    print(alt_cropped)  # "MKVLWAALLVTF" (1022-length)
-    print(adj_pos)  # Adjusted position relative to cropped sequence
+    # ## Get PLL
+    # device = "cuda" if torch.cuda.is_available() else "cpu"
+    # print(get_PLL(df_in.seq.values[0], model, tokenizer, device=device))
+    # # indel: 14_IPS_delins_EESE (FISHWISHFQRCHIPSTHATARECRISP --> FISHWISHFQRCHEESETHATARECRISP)
+    # print(
+    #     get_PLLR(
+    #         "FISHWISHFQRCHIPSTHATARECRISP",
+    #         "FISHWISHFQRCHEESETHATARECRISP",
+    #         14,
+    #         model,
+    #         tokenizer,  # Replace alphabet with tokenizer
+    #         weighted=False,
+    #         device=device,
+    #     )
+    # )
+    # ## stop at position 17
+    # print(get_minLLR(df_in.seq.values[0], 17, model, tokenizer, device=device))
+    # ref_seq = "MKVLWAALLVTFLAGCQAKVE"  # 21 amino acids (WT)
+    # alt_seq = "MKVLWAALLVTFLAGCQAKVEE"  # 22 amino acids (Mutant with insertion)
+    # ref_start = 10  # Indel at position 10
+    # ref_cropped, alt_cropped, adj_pos = crop_indel(ref_seq, alt_seq, ref_start)
+    # print(ref_cropped)  # "MKVLWAALLVTF" (1022-length)
+    # print(alt_cropped)  # "MKVLWAALLVTF" (1022-length)
+    # print(adj_pos)  # Adjusted position relative to cropped sequence

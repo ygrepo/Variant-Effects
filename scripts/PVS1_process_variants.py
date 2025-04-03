@@ -36,7 +36,7 @@ def compute_llr(model, tokenizer, protein_seq, position, ref_aa, alt_aa, device)
 
 
 # Compute PLLR for insertions, deletions, frameshifts
-def compute_pllr(model, tokenizer, wt_seq, mut_seq, start_pos, device):
+def compute_pllr(model_type, model, tokenizer, wt_seq, mut_seq, start_pos, device):
     """
     Compute the Protein Log-Likelihood Ratio (PLLR) for frameshift, insertion, or deletion mutations.
     """
@@ -44,6 +44,7 @@ def compute_pllr(model, tokenizer, wt_seq, mut_seq, start_pos, device):
         wt_seq,
         mut_seq,
         start_pos,
+        model_type,
         model,
         tokenizer,
         weighted=False,
@@ -156,7 +157,7 @@ def run_llr_predictions(model, tokenizer, device):
     print(f"LLR predictions saved to {OUTPUT_FILE}")
 
 
-def test_llr_insertions(model, tokenizer, device):
+def test_llr_insertions(model_type, model, tokenizer, device):
     # Test Insertions
     gene = "MSH6"
     transcript = "ENST00000234420.11"
@@ -168,11 +169,13 @@ def test_llr_insertions(model, tokenizer, device):
     alt_aa = "G"
     mut_seq = protein_seq[:position] + alt_aa + protein_seq[position:]
     print(f"Mut. Protein Seq.: {mut_seq}\n")
-    llr = compute_pllr(model, tokenizer, protein_seq, mut_seq, position, device)
-    print(f"PLLR (Insertion): {llr}\n")
+    llr = compute_pllr(
+        model_type, model, tokenizer, protein_seq, mut_seq, position, device
+    )
+    print(f"PLLR (Insertion): {llr}\n")  # esm1: 1.31; esm2: 0.48
 
 
-def test_llr_delins(model, tokenizer, device):
+def test_llr_delins(model_type, model, tokenizer, device):
     # Test Delins
     gene = "MSH6"
     transcript = "ENST00000540021.6"
@@ -185,9 +188,9 @@ def test_llr_delins(model, tokenizer, device):
     mut_seq = protein_seq[: position - 1] + alt_aa + protein_seq[position:]
     print(f"Mut. Protein Seq.: {mut_seq}\n")
     llr = compute_delins_llr(
-        model, tokenizer, protein_seq, mut_seq, position, alt_aa, device
-    )
-    print(f"PLLR (DelInsertion): {llr}\n")
+        model_type, model, tokenizer, protein_seq, mut_seq, position, alt_aa, device
+    )  # model_type is either esm1 or esm2
+    print(f"PLLR (DelInsertion): {llr}\n")  # esm1: 3.15; esm2: 0.95
 
 
 def test_llr_missense(model, tokenizer, device):
@@ -357,8 +360,13 @@ def test_deletion(model, tokenizer, device):
 if __name__ == "__main__":
     print(f"Current directory: {os.getcwd()}")
     # Load ESM Model
-    model, tokenizer, device = load_model("facebook/esm2_t6_8M_UR50D")
-    # test_llr_delins(model, tokenizer, device)
+    # model_name = "facebook/esm1b_t33_650M_UR50S"
+    model_name = "facebook/esm2_t6_8M_UR50D"
+    model, tokenizer, device = load_model(model_name=model_name, load_flag=True)
+    print(f"Device: {device}")
+    print(f"Model: {model_name} loaded successfully!")
+    test_llr_insertions("esm2", model, tokenizer, device)
+    # test_llr_delins("esm1", model, tokenizer, device)
     # test_deletion(model, tokenizer, device)
     # test_llr_missense(model, tokenizer, device)
-    run_llr_predictions(model, tokenizer, device)
+    # run_llr_predictions(model, tokenizer, device)

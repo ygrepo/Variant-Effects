@@ -42,6 +42,14 @@ def parse_hgvsp(hgvsp_str):
         tuple: (position, ref_aa, alt_aa, mutation_type)
     """
 
+    # Complex Delins (e.g., p.Met1_Ser2delinsPro)
+    match = re.match(
+        r"^p\.([A-Za-z]+)(\d+)_([A-Za-z]+)(\d+)delins([A-Za-z]+)$", hgvsp_str
+    )
+    if match:
+        ref_aa1, pos1, ref_aa2, pos2, alt_aa = match.groups()
+        return (int(pos1), f"{ref_aa1}{pos1}_{ref_aa2}{pos2}", alt_aa, "Delins")
+
     # Start Codon Loss (e.g., p.M1?, p.M1V)
     match = re.match(r"^p\.M1(\?|[A-Z])$", hgvsp_str)
     if match:
@@ -273,6 +281,18 @@ def load_protein_files(df, fasta_dir="./data/protein_sequences"):
                 continue  # Skip if no sequence is available
 
 
+# Example variant information
+def load_variant():
+    gene = "MSH6"
+    transcript = "ENST00000234420.11"
+
+    # Create a minimal DataFrame
+    df = pd.DataFrame([{"Gene": gene, "Transcript": transcript}])
+
+    # Call the function
+    load_protein_files(df)
+
+
 if __name__ == "__main__":
     print(f"Current directory: {os.getcwd()}")
     # print(parse_hgvsp("p.M1?"))  # Start Codon Loss (Unknown Replacement)
@@ -281,7 +301,7 @@ if __name__ == "__main__":
     # print(parse_hgvsp("p.R104X"))  # Nonsense Mutation (Stop Gain)
     # print(parse_hgvsp("p.Y97C"))  # Missense Mutation
     # print(parse_hgvsp("p.A100Dfs*5"))  # Frameshift Mutation
-    print(parse_hgvsp("p.W50_S51insG"))  # Insertion
+    # print(parse_hgvsp("p.W50_S51insG"))  # Insertion
     # print(parse_hgvsp("p.A123del"))  # Deletion
     # print(parse_hgvsp("p.X1231delinsX"))  # Delins
 
@@ -291,6 +311,7 @@ if __name__ == "__main__":
     # print(parse_hgvsp("p.R104X"))  # Nonsense Mutation (Stop Gain)
     # print(parse_hgvsp("p.W50_S51insG"))  # Insertion
     # print(parse_hgvsp("p.A123del"))  # Deletion
+    # print(parse_hgvsp("p.Met1_Ser2delinsPro"))
 
     # Load dataset
     # file_path = "./data/nonACMGPLP_pLoF_allinfo_AA_Light.xlsx"
@@ -299,8 +320,9 @@ if __name__ == "__main__":
     # )
     # parse(df)
 
-    file_path = "./data/variants_processed.csv"
-    df = pd.read_csv(file_path)
-    print(df.head())
-    # Validate variants
-    load_protein_files(df)
+    # file_path = "./data/variants_processed.csv"
+    # df = pd.read_csv(file_path)
+    # print(df.head())
+    # # Validate variants
+    # load_protein_files(df)
+    load_variant()
