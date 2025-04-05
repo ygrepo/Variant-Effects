@@ -520,7 +520,7 @@ def meltLLR(LLR, savedir=None):
     return vars
 
 
-def get_start_loss_LLR(seq, model, tokenizer, device):
+def get_start_loss_LLR(seq, model_type, model, tokenizer, device):
     """
     Compute the LLR for start-loss mutations.
     - If the start codon is lost, look at downstream methionines (alternative starts).
@@ -531,7 +531,7 @@ def get_start_loss_LLR(seq, model, tokenizer, device):
         [("_", "_", seq, len(seq))], columns=["id", "gene", "seq", "length"]
     )
     input_df_ids, LLRs = get_wt_LLR(
-        seq_df, model, tokenizer, device=device, silent=True
+        seq_df, model_type, model, tokenizer, device=device, silent=True
     )
 
     if len(LLRs) == 0:
@@ -878,7 +878,7 @@ def crop_indel(ref_seq, alt_seq, ref_start):
 
 
 ## stop gain variant score
-def get_minLLR(seq, stop_pos, model, tokenizer, device=0):
+def get_minLLR(seq, stop_pos, model_type, model, tokenizer, device=0):
     """
     Compute the minimum LLR score after a given stop position.
 
@@ -892,8 +892,8 @@ def get_minLLR(seq, stop_pos, model, tokenizer, device=0):
     )
 
     # Compute LLR matrix for the wild-type sequence
-    input_df_ids, LLRs = get_wt_LLR(
-        seq_df, model, tokenizer, device=device, silent=True
+    _, LLRs = get_wt_LLR(
+        seq_df, model_type, model, tokenizer, device=device, silent=True
     )
 
     # Ensure we have valid LLR values

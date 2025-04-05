@@ -18,7 +18,7 @@ import matplotlib.pyplot as plt
 # Directory for protein sequences
 FASTA_DIR = "./data/protein_sequences/"
 VARIANTS_FILE = "./data/variants_processed.xlsx"
-OUTPUT_FILE = "./data/variants_with_llr.xlsx"
+OUTPUT_FILE = "./data/variants_with_esm2_llr.xlsx"
 
 
 # Compute LLR for missense and nonsense mutations
@@ -116,7 +116,7 @@ def run_llr_predictions(model_type, model, tokenizer, device):
         elif mutation_type == "Stop Loss":
             llr = get_minLLR(protein_seq, position, model, tokenizer, device)
         elif mutation_type == "Start Loss":
-            llr = get_start_loss_LLR(protein_seq, model, tokenizer, device)
+            llr = get_start_loss_LLR(protein_seq, model_type, model, tokenizer, device)
         elif mutation_type == "Delins":
             # Ensure the mutation is properly formatted
             if alt_aa == "X":
@@ -239,7 +239,7 @@ def test_llr_missense(model_type, model, tokenizer, device):
     llr = compute_llr(
         model_type, model, tokenizer, protein_seq, position, ref_aa, alt_aa, device
     )
-    print(f"LLR (Missense): {llr}\n")  # esm1: -2.48, esm2:
+    print(f"LLR (Missense): {llr}\n")  # esm1: -2.48, esm2: -2.51
 
     # Create a DataFrame for the protein sequence
     seq_df = pd.DataFrame(
@@ -403,5 +403,5 @@ if __name__ == "__main__":
     # test_llr_insertions("esm1", model, tokenizer, device)
     # test_llr_delins("esm1", model, tokenizer, device)
     # test_deletion("esm1", model, tokenizer, device)
-    test_llr_missense("esm1", model, tokenizer, device)
-    # run_llr_predictions(model, tokenizer, device)
+    # test_llr_missense("esm2", model, tokenizer, device)
+    run_llr_predictions("esm2", model, tokenizer, device)
