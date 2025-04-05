@@ -10,6 +10,7 @@ from esm_variants_utils import (
     get_start_loss_LLR,
     compute_delins_llr,
     get_local_PLL,
+    align_deletion_pll,
 )
 import matplotlib.pyplot as plt
 
@@ -21,12 +22,16 @@ OUTPUT_FILE = "./data/variants_with_llr.xlsx"
 
 
 # Compute LLR for missense and nonsense mutations
-def compute_llr(model, tokenizer, protein_seq, position, ref_aa, alt_aa, device):
+def compute_llr(
+    model_type, model, tokenizer, protein_seq, position, ref_aa, alt_aa, device
+):
     seq_df = pd.DataFrame(
         [("protein1", "Gene_Name", protein_seq, len(protein_seq))],
         columns=["id", "gene", "seq", "length"],
     )
-    _, LLRs = get_wt_LLR(seq_df, model, tokenizer, device=device, silent=True)
+    _, LLRs = get_wt_LLR(
+        seq_df, model_type, model, tokenizer, device=device, silent=True
+    )
 
     if len(LLRs) > 0:
         llr_matrix = LLRs[0]
@@ -53,7 +58,7 @@ def compute_pllr(model_type, model, tokenizer, wt_seq, mut_seq, start_pos, devic
 
 
 # Process Variants for LLR Computation
-def run_llr_predictions(model, tokenizer, device):
+def run_llr_predictions(model_type, model, tokenizer, device):
     if not os.path.exists(VARIANTS_FILE):
         print(f"Error: Variants file {VARIANTS_FILE} not found!")
         return
@@ -89,14 +94,25 @@ def run_llr_predictions(model, tokenizer, device):
         # Compute LLR based on mutation type
         if mutation_type in ["Missense", "Nonsense"]:
             llr = compute_llr(
-                model, tokenizer, protein_seq, position, ref_aa, alt_aa, device
+                model_type,
+                model,
+                tokenizer,
+                protein_seq,
+                position,
+                ref_aa,
+                alt_aa,
+                device,
             )
         elif mutation_type == "Insertion":
             mut_seq = protein_seq[:position] + alt_aa + protein_seq[position:]
-            llr = compute_pllr(model, tokenizer, protein_seq, mut_seq, position, device)
+            llr = compute_pllr(
+                model_type, model, tokenizer, protein_seq, mut_seq, position, device
+            )
         elif mutation_type == "Deletion":
             mut_seq = protein_seq[: position - 1] + protein_seq[position:]
-            llr = compute_pllr(model, tokenizer, protein_seq, mut_seq, position, device)
+            llr = compute_pllr(
+                model_type, model, tokenizer, protein_seq, mut_seq, position, device
+            )
         elif mutation_type == "Stop Loss":
             llr = get_minLLR(protein_seq, position, model, tokenizer, device)
         elif mutation_type == "Start Loss":
@@ -123,13 +139,27 @@ def run_llr_predictions(model, tokenizer, device):
                         protein_seq[: position - 1] + alt_aa + protein_seq[position:]
                     )
                     llr = compute_delins_llr(
-                        model, tokenizer, protein_seq, mut_seq, position, alt_aa, device
+                        model_type,
+                        model,
+                        tokenizer,
+                        protein_seq,
+                        mut_seq,
+                        position,
+                        alt_aa,
+                        device,
                     )
             else:
                 # Normal Delins processing
                 mut_seq = protein_seq[: position - 1] + alt_aa + protein_seq[position:]
                 llr = compute_delins_llr(
-                    model, tokenizer, protein_seq, mut_seq, position, alt_aa, device
+                    model_type,
+                    model,
+                    tokenizer,
+                    protein_seq,
+                    mut_seq,
+                    position,
+                    alt_aa,
+                    device,
                 )
         elif mutation_type == "Frameshift":
             print(f"Frameshift for {gene} {transcript} {mutation_type} at {position}")
@@ -193,7 +223,7 @@ def test_llr_delins(model_type, model, tokenizer, device):
     print(f"PLLR (DelInsertion): {llr}\n")  # esm1: 3.15; esm2: 0.95
 
 
-def test_llr_missense(model, tokenizer, device):
+def test_llr_missense(model_type, model, tokenizer, device):
     # Test Missense
     gene = "MSH6"
     transcript = "ENST00000540021.6"
@@ -206,8 +236,10 @@ def test_llr_missense(model, tokenizer, device):
     ref_aa = "M"
     alt_aa = "I"
 
-    llr = compute_llr(model, tokenizer, protein_seq, position, ref_aa, alt_aa, device)
-    print(f"LLR (Missense): {llr}\n")
+    llr = compute_llr(
+        model_type, model, tokenizer, protein_seq, position, ref_aa, alt_aa, device
+    )
+    print(f"LLR (Missense): {llr}\n")  # esm1: -2.48, esm2:
 
     # Create a DataFrame for the protein sequence
     seq_df = pd.DataFrame(
@@ -216,7 +248,9 @@ def test_llr_missense(model, tokenizer, device):
     )
 
     # Compute LLRs for the wild-type sequence.
-    _, LLRs = get_wt_LLR(seq_df, model, tokenizer, device=device, silent=True)
+    _, LLRs = get_wt_LLR(
+        seq_df, model_type, model, tokenizer, device=device, silent=True
+    )
 
     if len(LLRs) > 0:
         llr_matrix = LLRs[0]
@@ -254,7 +288,7 @@ def test_llr_missense(model, tokenizer, device):
         print("LLRs not computed.")
 
 
-def test_deletion(model, tokenizer, device):
+def test_deletion(model_type, model, tokenizer, device):
     # Load the protein sequence from a FASTA file.
     gene = "MSH6"
     transcript = "ENST00000540021.6"
@@ -274,21 +308,26 @@ def test_deletion(model, tokenizer, device):
     print(f"Protein Mutated Sequence:\n{mut_seq}\n")
 
     # Compute the overall PLLR comparing the wild-type and mutated sequences.
-    llr = compute_pllr(model, tokenizer, protein_seq, mut_seq, position, device)
-    print(f"Overall PLLR for deletion at position {position}: {llr}\n")
+    llr = compute_pllr(
+        model_type, model, tokenizer, protein_seq, mut_seq, position, device
+    )
+    print(
+        f"Overall PLLR for deletion at position {position}: {llr}\n"
+    )  # esm1: 1.53, esm2: 0.86
 
     # ---- Obtain Local PLL Values from the Model ----
     # Note: A negative PLL does NOT mean the model thinks the residue is "wrong."
     #       Log probabilities < 1 become negative when taking log.
-    wt_local_pll = get_local_PLL(protein_seq, model, tokenizer, device)
-    mut_local_pll = get_local_PLL(mut_seq, model, tokenizer, device)
+    wt_local_pll = get_local_PLL(
+        protein_seq, model_type, model, tokenizer, position, device
+    )
+    mut_local_pll = get_local_PLL(
+        mut_seq, model_type, model, tokenizer, position, device
+    )
 
     # Because the deletion removes one residue, the mutant PLL array has one fewer element.
     # We'll align the mutant array to the wild-type indices by inserting NaN at the deletion position.
-    aligned_mut_pll = np.empty(len(wt_local_pll))
-    aligned_mut_pll[: position - 1] = mut_local_pll[: position - 1]
-    aligned_mut_pll[position - 1] = np.nan
-    aligned_mut_pll[position:] = mut_local_pll[position - 1 :]
+    aligned_mut_pll = align_deletion_pll(wt_local_pll, mut_local_pll, position)
 
     # ---- Plot 1: Raw PLL Comparison Around the Deletion ----
     window = 10
@@ -331,11 +370,7 @@ def test_deletion(model, tokenizer, device):
 
     # Compute difference for positions that exist in both arrays (i.e., ignoring the alignment step).
     mut_diff = mut_local_pll - wt_local_pll[: len(mut_local_pll)]
-    # Align the difference array by inserting a NaN at the deletion position.
-    aligned_mut_diff = np.empty(len(wt_local_pll))
-    aligned_mut_diff[: position - 1] = mut_diff[: position - 1]
-    aligned_mut_diff[position - 1] = np.nan
-    aligned_mut_diff[position:] = mut_diff[position - 1 :]
+    aligned_mut_diff = align_deletion_pll(wt_local_pll, mut_diff, position)
 
     mut_diff_window = aligned_mut_diff[start_idx:end_idx]
 
@@ -365,8 +400,8 @@ if __name__ == "__main__":
     model, tokenizer, device = load_model(model_name=model_name, load_flag=True)
     print(f"Device: {device}")
     print(f"Model: {model_name} loaded successfully!")
-    test_llr_insertions("esm2", model, tokenizer, device)
+    # test_llr_insertions("esm1", model, tokenizer, device)
     # test_llr_delins("esm1", model, tokenizer, device)
-    # test_deletion(model, tokenizer, device)
-    # test_llr_missense(model, tokenizer, device)
+    # test_deletion("esm1", model, tokenizer, device)
+    test_llr_missense("esm1", model, tokenizer, device)
     # run_llr_predictions(model, tokenizer, device)

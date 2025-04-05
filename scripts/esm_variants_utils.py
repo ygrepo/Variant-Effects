@@ -8,6 +8,7 @@ from transformers import (
     AutoTokenizer,
     EsmForMaskedLM,
 )
+
 import os
 
 AAorder = [
@@ -152,36 +153,121 @@ def load_model_paths(model_name):
     return model_path, tokenizer_path
 
 
-def get_wt_LLR(input_df, model, tokenizer, device="cuda", silent=False):
+# def get_wt_LLR(input_df, model, tokenizer, device="cuda", silent=False):
+#     """
+#     Compute Wild-Type Log-Likelihood Ratio (LLR) for protein sequences.
+#     Uses Hugging Face ESM model instead of Facebook's alphabet-based version.
+#     """
+#     device = torch.device(device if torch.cuda.is_available() else "cpu")
+
+#     # Standard amino acid order
+#     AAorder = [
+#         "K",
+#         "R",
+#         "H",
+#         "E",
+#         "D",
+#         "N",
+#         "Q",
+#         "T",
+#         "S",
+#         "C",
+#         "G",
+#         "A",
+#         "V",
+#         "L",
+#         "I",
+#         "M",
+#         "P",
+#         "Y",
+#         "F",
+#         "W",
+#     ]
+
+#     LLRs = []
+#     input_df_ids = []
+
+#     for _, row in tqdm(input_df.iterrows(), total=len(input_df), disable=silent):
+#         gname = row["id"]
+#         sequence = row["seq"]
+#         seq_length = len(sequence)
+
+#         # Ensure the sequence length matches the model's output
+#         if seq_length > 1022:
+#             print(f"Warning: {gname} sequence is too long ({seq_length}). Truncating!")
+#             sequence = sequence[:1022]  # Truncate to max ESM2 sequence length
+
+#         # Tokenization with attention_mask
+#         batch_tokens = tokenizer(
+#             sequence,
+#             return_tensors="pt",
+#             padding="max_length",
+#             truncation=True,
+#             max_length=1022,
+#         )
+#         batch_tokens = {k: v.to(device) for k, v in batch_tokens.items()}
+#         # Run ESM model
+#         with torch.no_grad():
+#             results_ = (
+#                 torch.log_softmax(
+#                     model(
+#                         batch_tokens["input_ids"],
+#                         attention_mask=batch_tokens["attention_mask"],
+#                     )["logits"],
+#                     dim=-1,
+#                 )
+#                 .cpu()
+#                 .numpy()
+#             )
+
+#         # Adjust the sequence length to match logits
+#         actual_seq_length = min(
+#             seq_length, results_.shape[1] - 2
+#         )  # Adjust for special tokens
+#         logit_data = results_[0, 1 : actual_seq_length + 1, :]  # Extract valid range
+
+#         # Extract WT log probabilities
+#         WTlogits = pd.DataFrame(
+#             logit_data,
+#             columns=tokenizer.get_vocab().keys(),
+#             index=list(sequence[:actual_seq_length]),  # Ensure correct index length
+#         ).T.loc[AAorder]
+
+#         WTlogits.columns = [f"{aa} {i+1}" for i, aa in enumerate(WTlogits.columns)]
+
+#         # Compute LLR
+#         wt_norm = np.diag(WTlogits.loc[[aa.split(" ")[0] for aa in WTlogits.columns]])
+#         LLR = WTlogits - wt_norm
+
+#         LLRs.append(LLR)
+#         input_df_ids.append(gname)
+
+#     return input_df_ids, LLRs
+
+
+def get_wt_LLR(
+    input_df, model_type, model, tokenizer_or_alphabet, device="cuda", silent=False
+):
     """
     Compute Wild-Type Log-Likelihood Ratio (LLR) for protein sequences.
-    Uses Hugging Face ESM model instead of Facebook's alphabet-based version.
+    Compatible with both ESM1 (Facebook) and ESM2 (Hugging Face).
+
+    Parameters:
+        input_df: pandas DataFrame with columns "id" and "seq"
+        model_type: "esm1" or "esm2"
+        model: loaded model
+        tokenizer_or_alphabet: HuggingFace tokenizer or ESM1 Alphabet
+        device: device name or index (default "cuda")
+        silent: if True, disables tqdm progress bar
+
+    Returns:
+        input_df_ids: list of sequence IDs
+        LLRs: list of pandas DataFrames with LLRs per sequence
     """
     device = torch.device(device if torch.cuda.is_available() else "cpu")
 
     # Standard amino acid order
-    AAorder = [
-        "K",
-        "R",
-        "H",
-        "E",
-        "D",
-        "N",
-        "Q",
-        "T",
-        "S",
-        "C",
-        "G",
-        "A",
-        "V",
-        "L",
-        "I",
-        "M",
-        "P",
-        "Y",
-        "F",
-        "W",
-    ]
+    AAorder = list("KRHEDNQTSCGAVLIMPYFW")
 
     LLRs = []
     input_df_ids = []
@@ -191,50 +277,83 @@ def get_wt_LLR(input_df, model, tokenizer, device="cuda", silent=False):
         sequence = row["seq"]
         seq_length = len(sequence)
 
-        # Ensure the sequence length matches the model's output
-        if seq_length > 1022:
-            print(f"Warning: {gname} sequence is too long ({seq_length}). Truncating!")
-            sequence = sequence[:1022]  # Truncate to max ESM2 sequence length
-
-        # Tokenization with attention_mask
-        batch_tokens = tokenizer(
-            sequence,
-            return_tensors="pt",
-            padding="max_length",
-            truncation=True,
-            max_length=1022,
-        )
-        batch_tokens = {k: v.to(device) for k, v in batch_tokens.items()}
-        # Run ESM model
-        with torch.no_grad():
-            results_ = (
-                torch.log_softmax(
-                    model(
-                        batch_tokens["input_ids"],
-                        attention_mask=batch_tokens["attention_mask"],
-                    )["logits"],
-                    dim=-1,
+        if model_type == "esm2":
+            # Truncate if too long
+            if seq_length > 1022:
+                print(
+                    f"[Warning] {gname} sequence is too long ({seq_length}). Truncating to 1022."
                 )
-                .cpu()
-                .numpy()
+                sequence = sequence[:1022]
+
+            tokens = tokenizer_or_alphabet(
+                sequence,
+                return_tensors="pt",
+                padding="max_length",
+                truncation=True,
+                max_length=1024,
+                add_special_tokens=True,
             )
+            tokens = {k: v.to(device) for k, v in tokens.items()}
 
-        # Adjust the sequence length to match logits
-        actual_seq_length = min(
-            seq_length, results_.shape[1] - 2
-        )  # Adjust for special tokens
-        logit_data = results_[0, 1 : actual_seq_length + 1, :]  # Extract valid range
+            with torch.no_grad():
+                logits = (
+                    torch.log_softmax(
+                        model(
+                            input_ids=tokens["input_ids"],
+                            attention_mask=tokens["attention_mask"],
+                        ).logits,
+                        dim=-1,
+                    )
+                    .cpu()
+                    .numpy()
+                )
 
-        # Extract WT log probabilities
+            actual_seq_length = min(seq_length, logits.shape[1] - 2)
+            logit_data = logits[
+                0, 1 : actual_seq_length + 1, :
+            ]  # remove special tokens
+
+            vocab = tokenizer_or_alphabet.get_vocab()
+            id_to_token = {v: k for k, v in vocab.items()}
+            token_labels = [id_to_token[i] for i in range(logit_data.shape[-1])]
+
+        elif model_type == "esm1":
+            if seq_length > 1022:
+                print(f"[Info] Truncating {gname} to 1022 for ESM1.")
+                sequence = sequence[:1022]
+
+            batch_converter = tokenizer_or_alphabet.get_batch_converter()
+            data = [("sequence", sequence)]
+            _, _, batch_tokens = batch_converter(data)
+            batch_tokens = batch_tokens.to(device)
+
+            with torch.no_grad():
+                out = model(batch_tokens, repr_layers=[], return_contacts=False)
+                logits = torch.log_softmax(out["logits"], dim=-1).cpu().numpy()
+
+            actual_seq_length = min(seq_length, logits.shape[1] - 2)
+            logit_data = logits[
+                0, 1 : actual_seq_length + 1, :
+            ]  # remove <cls> and <eos>
+
+            id_to_token = {
+                i: tok for tok, i in tokenizer_or_alphabet.tok_to_idx.items()
+            }
+            token_labels = [id_to_token[i] for i in range(logit_data.shape[-1])]
+
+        else:
+            raise ValueError("model_type must be 'esm1' or 'esm2'")
+
+        # Build log-probability matrix
         WTlogits = pd.DataFrame(
-            logit_data,
-            columns=tokenizer.get_vocab().keys(),
-            index=list(sequence[:actual_seq_length]),  # Ensure correct index length
-        ).T.loc[AAorder]
+            logit_data, columns=token_labels, index=list(sequence[:actual_seq_length])
+        ).T.loc[
+            AAorder
+        ]  # only standard amino acids
 
         WTlogits.columns = [f"{aa} {i+1}" for i, aa in enumerate(WTlogits.columns)]
 
-        # Compute LLR
+        # Compute LLRs
         wt_norm = np.diag(WTlogits.loc[[aa.split(" ")[0] for aa in WTlogits.columns]])
         LLR = WTlogits - wt_norm
 
@@ -244,7 +363,16 @@ def get_wt_LLR(input_df, model, tokenizer, device="cuda", silent=False):
     return input_df_ids, LLRs
 
 
-def get_logits(seq, model_type, model, tokenizer_or_alphabet, format=None, device=0):
+def get_logits(
+    seq,
+    model_type,
+    model,
+    tokenizer_or_alphabet,
+    format=None,
+    device=0,
+    max_len=1022,
+    position=None,
+):
     """
     Compute log-probabilities (logits) for a given sequence using either Hugging Face's ESM (ESM-2)
     or Facebook's ESM-1b model.
@@ -256,12 +384,31 @@ def get_logits(seq, model_type, model, tokenizer_or_alphabet, format=None, devic
         tokenizer_or_alphabet: HuggingFace tokenizer or ESM alphabet
         format: if "pandas", returns a nicely formatted DataFrame
         device: torch.device or device index
+        max_len: max sequence length (only applies to esm1)
+        position: optional int, mutation center (for center-truncation in esm1)
     """
-    # device = torch.device(device)
-    # device = torch.device(device or ("cuda" if torch.cuda.is_available() else "cpu"))
+    import torch
+    import pandas as pd
+
+    device = torch.device(
+        device
+        if isinstance(device, str)
+        else ("cuda" if torch.cuda.is_available() else "cpu")
+    )
 
     if model_type == "esm1":
-        # Tokenize using ESM1's alphabet and batch_converter
+        if len(seq) > max_len:
+            if position is None:
+                print(
+                    f"[Warning] Truncating input sequence from {len(seq)} to {max_len} from the start."
+                )
+                seq = seq[:max_len]
+            else:
+                print(
+                    f"[Info] Center-truncating around position {position} for ESM-1b."
+                )
+                seq, _, _ = center_truncate(seq, seq, position, max_len=max_len)
+
         batch_converter = tokenizer_or_alphabet.get_batch_converter()
         data = [("sequence", seq)]
         _, _, batch_tokens = batch_converter(data)
@@ -273,12 +420,10 @@ def get_logits(seq, model_type, model, tokenizer_or_alphabet, format=None, devic
             ]
             logits = torch.log_softmax(logits_tensor, dim=-1).cpu().numpy()
 
-        # Remove special tokens (<cls>, <eos>)
-        logits = logits[0, 1:-1, :]  # Drop CLS and EOS
+        logits = logits[0, 1:-1, :]
         aa_sequence = list(seq)
 
     elif model_type == "esm2":
-        # Tokenize with Hugging Face
         tokens = tokenizer_or_alphabet(
             seq, return_tensors="pt", add_special_tokens=True
         ).to(device)
@@ -286,16 +431,13 @@ def get_logits(seq, model_type, model, tokenizer_or_alphabet, format=None, devic
         with torch.no_grad():
             logits = torch.log_softmax(model(**tokens).logits, dim=-1).cpu().numpy()
 
-        # Remove special tokens (CLS and EOS)
         logits = logits[0, 1:-1, :]
-
         aa_sequence = list(seq)
 
     else:
         raise ValueError(f"Unsupported model_type: {model_type}")
 
     if format == "pandas":
-
         if model_type == "esm2":
             vocab = tokenizer_or_alphabet.get_vocab()
             id_to_token = {v: k for k, v in vocab.items()}
@@ -304,38 +446,62 @@ def get_logits(seq, model_type, model, tokenizer_or_alphabet, format=None, devic
                 i: tok for tok, i in tokenizer_or_alphabet.tok_to_idx.items()
             }
 
-        aa_vocab = [aa for aa in "ACDEFGHIKLMNPQRSTVWY"]
+        aa_vocab = list("ACDEFGHIKLMNPQRSTVWY")
         vocab_indices = [id_to_token[i] for i in range(logits.shape[-1])]
 
         df = pd.DataFrame(
             logits, columns=vocab_indices, index=range(len(aa_sequence))
-        ).T.loc[
-            aa_vocab
-        ]  # Only keep standard AAs
+        ).T.loc[aa_vocab]
 
         df.columns = [f"{res} {i+1}" for i, res in enumerate(aa_sequence)]
-        return df
+        return df, seq
 
-    return logits
+    return logits, seq
 
 
-def get_PLL(seq, model_type, model, tokenizer_or_alphabet, reduce=np.sum, device=None):
+def get_PLL(
+    seq,
+    model_type,
+    model,
+    tokenizer_or_alphabet,
+    reduce=np.sum,
+    device=None,
+    position=None,
+):
     """
     Compute the Protein Log-Likelihood (PLL) for a given sequence.
-    """
 
-    # Get log-probabilities
-    s = get_logits(seq, model_type, model, tokenizer_or_alphabet, None, device)
+    Parameters:
+        seq: input protein sequence (string)
+        model_type: "esm1" or "esm2"
+        model: loaded model
+        tokenizer_or_alphabet: ESM1 alphabet or HuggingFace tokenizer
+        reduce: function to reduce log-probs (e.g., np.sum, np.mean)
+        device: device string or torch.device (optional)
+        position: center position for truncation (used for ESM1 if seq > 1022)
+    """
+    device = torch.device(device or ("cuda" if torch.cuda.is_available() else "cpu"))
+
+    # Get log-probabilities for each amino acid position
+    s, _ = get_logits(
+        seq,
+        model_type,
+        model,
+        tokenizer_or_alphabet,
+        format=None,
+        device=device,
+        position=position,  # <-- supports center-truncate if needed
+    )
 
     # Get token indices for ground truth amino acids
     if model_type == "esm1":
         idx = [tokenizer_or_alphabet.tok_to_idx[aa] for aa in seq]
     elif model_type == "esm2":
         idx = tokenizer_or_alphabet.encode(seq, add_special_tokens=False)
-        # Get token indices manually using the ESM1 alphabet
     else:
         raise ValueError("Unsupported model type")
 
+    # Compute PLL
     return reduce(np.diag(s[:, idx]))
 
 
@@ -422,7 +588,29 @@ def compute_delins_llr(
         alt_aa: mutated residue (e.g. 'V')
         device: torch.device
     """
-    if model_type == "esm2":
+
+    if model_type == "esm1":
+        # First truncate sequence (if needed) to avoid ESM1's 1024-token limit
+        wt_seq, mut_seq, position = center_truncate(wt_seq, mut_seq, position)
+
+        # Tokenize using ESM1's batch converter
+        batch_converter = tokenizer_or_alphabet.get_batch_converter()
+        data = [("WT", wt_seq), ("MUT", mut_seq)]
+        _, _, batch_tokens = batch_converter(data)
+        batch_tokens = batch_tokens.to(device)
+
+        with torch.no_grad():
+            logits = model(batch_tokens, repr_layers=[], return_contacts=False)[
+                "logits"
+            ]
+            log_probs = torch.log_softmax(logits, dim=-1).cpu().numpy()
+
+        # Adjust for <cls> token at index 0
+        wt_ll = log_probs[0, position + 1, :]
+        mut_ll = log_probs[1, position + 1, :]
+
+        target_token_id = tokenizer_or_alphabet.tok_to_idx[alt_aa]
+    elif model_type == "esm2":
         # Tokenize both sequences
         wt_tokens = tokenizer_or_alphabet(
             wt_seq, return_tensors="pt", padding=True, truncation=True
@@ -449,27 +637,6 @@ def compute_delins_llr(
         target_token_id = tokenizer_or_alphabet.encode(
             alt_aa, add_special_tokens=False
         )[0]
-    elif model_type == "esm1":
-        # First truncate sequence (if needed) to avoid ESM1's 1024-token limit
-        wt_seq, mut_seq, position = center_truncate(wt_seq, mut_seq, position)
-
-        # Tokenize using ESM1's batch converter
-        batch_converter = tokenizer_or_alphabet.get_batch_converter()
-        data = [("WT", wt_seq), ("MUT", mut_seq)]
-        _, _, batch_tokens = batch_converter(data)
-        batch_tokens = batch_tokens.to(device)
-
-        with torch.no_grad():
-            logits = model(batch_tokens, repr_layers=[], return_contacts=False)[
-                "logits"
-            ]
-            log_probs = torch.log_softmax(logits, dim=-1).cpu().numpy()
-
-        # Adjust for <cls> token at index 0
-        wt_ll = log_probs[0, position + 1, :]
-        mut_ll = log_probs[1, position + 1, :]
-
-        target_token_id = tokenizer_or_alphabet.tok_to_idx[alt_aa]
 
     else:
         raise ValueError(f"Unsupported model_type: {model_type}")
@@ -480,20 +647,51 @@ def compute_delins_llr(
     return llr
 
 
-def get_local_PLL(seq, model_type, model, tokenizer, device=0):
+def get_local_PLL(
+    seq, model_type, model, tokenizer_or_alphabet, position=None, device=0
+):
     """
-    Compute local PLL values for each position in the sequence.
-    This function obtains the logits from the model, then extracts the PLL value
-    (the log-likelihood of the actual residue) for each position.
+    Compute local PLL (log-likelihood of each residue) for a given protein sequence.
+    Compatible with both ESM1 (Facebook) and ESM2 (Hugging Face).
+
+    Parameters:
+        seq: protein sequence (string)
+        model_type: "esm1" or "esm2"
+        model: loaded model
+        tokenizer_or_alphabet: ESM1 alphabet or HuggingFace tokenizer
+        position: (optional) center position for truncation (used in ESM1)
+        device: torch.device or device index
+
+    Returns:
+        local_pll: np.array of log-likelihoods per residue
     """
-    # Get logits from the model for the entire sequence.
-    s = get_logits(
-        seq, model_type, model=model, tokenizer=tokenizer, format=None, device=device
+
+    device = torch.device(
+        device
+        if isinstance(device, str)
+        else ("cuda" if torch.cuda.is_available() else "cpu")
     )
-    # Encode the sequence (without special tokens) to obtain token indices.
-    idx = tokenizer.encode(seq, add_special_tokens=False)
-    # Extract the PLL for each position as the logit corresponding to the actual residue.
-    # (This assumes that a higher logit corresponds to a higher likelihood.)
+
+    # Get log-probabilities matrix [L, vocab_size]
+    s, truncated_seq = get_logits(
+        seq,
+        model_type,
+        model,
+        tokenizer_or_alphabet,
+        format=None,
+        device=device,
+        position=position,
+    )
+
+    # Convert sequence into token indices
+    if model_type == "esm1":
+        idx = [tokenizer_or_alphabet.tok_to_idx[aa] for aa in truncated_seq]
+    elif model_type == "esm2":
+        idx = tokenizer_or_alphabet.encode(truncated_seq, add_special_tokens=False)
+    else:
+        raise ValueError("Unsupported model_type: should be 'esm1' or 'esm2'")
+
+    # Extract log-probability of the correct amino acid at each position
     local_pll = np.array([s[i, idx[i]] for i in range(len(idx))])
     return local_pll
 
@@ -508,6 +706,43 @@ def center_truncate(wt_seq, mut_seq, position, max_len=1022):
     new_pos = position - start
 
     return new_wt, new_mut, new_pos
+
+
+import numpy as np
+
+
+def align_deletion_pll(wt_local_pll, mut_local_pll, position):
+    """
+    Align local PLL arrays for a deletion mutation by inserting NaN at the deleted position.
+
+    Parameters:
+        wt_local_pll: np.array of wild-type PLL values (length N)
+        mut_local_pll: np.array of mutant PLL values (length N-1 or N)
+        position: 1-based index of the deleted residue
+
+    Returns:
+        aligned_mut_pll: np.array of length N with NaN at deleted position
+    """
+    position = int(position)
+    N = len(wt_local_pll)
+
+    if len(mut_local_pll) == N:
+        print(
+            f"[Warning] WT and mutant PLL lengths are equal ({N}); skipping deletion alignment."
+        )
+        return mut_local_pll
+
+    if len(mut_local_pll) != N - 1:
+        raise ValueError(
+            f"Expected mutant PLL to be one shorter than WT ({N - 1}), but got {len(mut_local_pll)}."
+        )
+
+    aligned_mut_pll = np.empty(N)
+    aligned_mut_pll[: position - 1] = mut_local_pll[: position - 1]
+    aligned_mut_pll[position - 1] = np.nan
+    aligned_mut_pll[position:] = mut_local_pll[position - 1 :]
+
+    return aligned_mut_pll
 
 
 ##################### TILING utils ###########################
@@ -606,6 +841,7 @@ def get_PLLR(
             tokenizer,
             fn,
             device,
+            start_pos,  # Pass start_pos for center-truncation
         ) - get_PLL(
             wt_seq,
             model_type,
@@ -613,6 +849,7 @@ def get_PLLR(
             tokenizer,
             fn,
             device,
+            start_pos,  # Pass start_pos for center-truncation
         )
 
 
